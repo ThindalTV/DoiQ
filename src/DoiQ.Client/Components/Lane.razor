@@ -1,0 +1,102 @@
+<section aria-label="@Title" class="lane @(IsOver ? "is-over" : "") @(NoDrop ? "no-drop" : "")"
+         @ondragover="() => OnDragOver.InvokeAsync(new DropTarget(LaneId, null))" @ondragover:preventDefault="!NoDrop"
+         @ondrop="() => OnDrop.InvokeAsync()" @ondrop:preventDefault="!NoDrop">
+    <div class="lane-head">
+        <h2>@Title</h2>
+        <span class="count">@Tasks.Count</span>
+        <span class="hint">@Hint</span>
+    </div>
+
+    @if (QuickAdd)
+    {
+        <label class="quick-add">
+            <Icon Name="plus" Size="12" Stroke="#a99bc6" />
+            <span class="sr">Add a task to New</span>
+            <input type="text" @ref="_input" id="quick-add" placeholder="Add a task, press Enter" @bind="_newTitle" @bind:event="oninput" @onkeydown="OnKey" />
+        </label>
+    }
+
+    @foreach (var t in Tasks)
+    {
+        @if (IsOver && DropBeforeId == t.Id && DragId != t.Id)
+        {
+            <div class="drop-line" aria-hidden="true">
+                <span class="ring"></span><span class="rule"></span>
+                <span class="label">Drop: @(t.Id == Tasks[0].Id ? "top of " + Title : "here")</span>
+            </div>
+        }
+        <div @key="t.Id" style="display:contents"
+             @ondragover="() => OnDragOver.InvokeAsync(new DropTarget(LaneId, t.Id))" @ondragover:preventDefault="!NoDrop" @ondragover:stopPropagation
+             @ondrop="() => OnDrop.InvokeAsync()" @ondrop:preventDefault="!NoDrop" @ondrop:stopPropagation>
+            <TaskCard Task="t" Focused="FocusedId == t.Id" Dragging="DragId == t.Id"
+                      OnOpen="OnOpen" OnFocus="OnFocus" OnDragStart="OnDragStart" OnDragEnd="OnDragEnd" />
+        </div>
+    }
+
+    @if (IsOver && DropBeforeId is null && DragId is not null)
+    {
+        <div class="drop-line" aria-hidden="true">
+            <span class="ring"></span><span class="rule"></span>
+            <span class="label">Drop: @(Tasks.Count == 0 ? Title : "bottom of " + Title)</span>
+        </div>
+    }
+
+    @if (Tasks.Count == 0 && !QuickAdd && !IsOver)
+    {
+        <div class="lane-empty">Nothing here</div>
+    }
+
+    @if (HiddenCount > 0 && ArchiveHref is not null)
+    {
+        <div class="lane-hidden">
+            <span>@HiddenCount older @(HiddenCount == 1 ? "task" : "tasks") hidden</span>
+            <a class="btn btn-link" href="@ArchiveHref">Archived tasks</a>
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public BoardLane LaneId { get; set; }
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string Hint { get; set; } = "";
+    [Parameter] public IReadOnlyList<TaskVm> Tasks { get; set; } = [];
+    [Parameter] public int? FocusedId { get; set; }
+    [Parameter] public int? DragId { get; set; }
+    [Parameter] public bool IsOver { get; set; }
+    /// <summary>The dragged card belongs to this lane and positions are locked: this lane is not a drop target (not-allowed cursor).</summary>
+    [Parameter] public bool NoDrop { get; set; }
+    [Parameter] public int? DropBeforeId { get; set; }
+    [Parameter] public bool QuickAdd { get; set; }
+    /// <summary>Archived tasks of this lane (Done only): not on the board, listed by the archive view at <see cref="ArchiveHref"/>.</summary>
+    [Parameter] public int HiddenCount { get; set; }
+    [Parameter] public string? ArchiveHref { get; set; }
+    [Parameter] public EventCallback<int> OnOpen { get; set; }
+    [Parameter] public EventCallback<int> OnFocus { get; set; }
+    [Parameter] public EventCallback<string> OnQuickAdd { get; set; }
+    [Parameter] public EventCallback<int> OnDragStart { get; set; }
+    [Parameter] public EventCallback<DropTarget> OnDragOver { get; set; }
+    [Parameter] public EventCallback OnDrop { get; set; }
+    [Parameter] public EventCallback OnDragEnd { get; set; }
+
+    private ElementReference _input;
+    private string _newTitle = "";
+
+    public ValueTask FocusQuickAdd() => _input.FocusAsync();
+
+    /// <summary>Puts text back in the quick-add box (a failed add); never overwrites something typed since.</summary>
+    public void SetDraft(string text)
+    {
+        if (_newTitle.Length == 0) _newTitle = text;
+        StateHasChanged();
+    }
+
+    private async Task OnKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(_newTitle))
+        {
+            var title = _newTitle;
+            _newTitle = "";
+            await OnQuickAdd.InvokeAsync(title);
+        }
+    }
+}

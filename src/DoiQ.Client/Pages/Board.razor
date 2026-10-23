@@ -1,0 +1,632 @@
+@page "/"
+@page "/board/{BoardId:int}"
+@implements IAsyncDisposable
+@inject IDoiQApiClient Api
+@inject IJSRuntime JS
+@inject NavigationManager Nav
+@inject AuthState Auth
+@inject BoardHubClient Hub
+@inject NoticeService Notices
+
+<PageTitle>@(BoardName is { } bn ? $"{bn} · DoiQ" : "DoiQ")</PageTitle>
+
+<div class="app">
+    <TopBar @ref="_topBar" Filter="_filter" Agents="Api.Agents" NeedsMeCount="NeedsMeCount" PresenceText="@_presenceText" Connection="Hub.State"
+            Boards="Api.Boards" CurrentBoardId="_shownBoardId" OnSwitchBoard="GoToBoard"
+            OnChanged="FilterChanged" OnNewTask="FocusQuickAdd" OnShowShortcuts="() => _showShortcuts = true" OnSignOut="SignOut" />
+
+    <main class="board" aria-label="@BoardName">
+        @if (_loaded && _all.Count == 0)
+        {
+            <div class="board-empty" role="status">
+                <strong>Nothing on @BoardName yet.</strong>
+                <span>Add the first task in New, or press <kbd>N</kbd>. Tasks stay on this board; other boards keep their own.</span>
+            </div>
+        }
+        @foreach (var lane in Lanes)
+        {
+            var l = lane;
+            var list = Visible(l);
+            <Lane @ref="_laneRefs[(int)l]" LaneId="l" Title="@l.ToString()" Hint="@Hints[(int)l]" Tasks="list"
+                  FocusedId="_focusedId" DragId="_dragId" IsOver="_dragId is not null && _over?.Lane == l" DropBeforeId="_over?.BeforeId" NoDrop="NoDrop(l)"
+                  QuickAdd="l == BoardLane.New" HiddenCount="l == BoardLane.Done ? Api.ArchivedCount : 0" ArchiveHref="@ArchiveLink(null)"
+                  OnOpen="Open" OnFocus="id => _focusedId = id" OnQuickAdd="QuickAdd"
+                  OnDragStart="id => { _dragId = id; _over = null; }" OnDragOver="DragOver" OnDrop="Drop"
+                  OnDragEnd="DragEnded" />
+        }
+    </main>
+
+    @if (SearchText.Length > 0 && _search is { } found && found.Query == SearchText && found.Archived.Count > 0)
+    {
+        <section class="archived-results" aria-labelledby="archived-results-h">
+            <div class="lane-head">
+                <h2 id="archived-results-h">Archived</h2>
+                <span class="count">@(found.MoreArchived ? $"{found.Archived.Count}+" : found.Archived.Count.ToString())</span>
+                <span class="hint">Done earlier, off the board</span>
+            </div>
+            <ArchivedList Tasks="found.Archived" OnOpen="Open" />
+            @if (found.MoreArchived)
+            {
+                <a class="btn btn-link" href="@ArchiveLink(found.Query)">All archived matches</a>
+            }
+        </section>
+    }
+
+    <footer class="boardfoot">
+        <span><kbd>J</kbd> <kbd>K</kbd> move</span>
+        <span><kbd>Enter</kbd> open</span>
+        <span><kbd>1</kbd>–<kbd>4</kbd> move to lane</span>
+        <span><kbd>Alt ↑</kbd> <kbd>Alt ↓</kbd> reprioritise</span>
+        <span><kbd>G</kbd> give to agent</span>
+        <span><kbd>T</kbd> take it</span>
+        <span><kbd>B</kbd> boards</span>
+        <span style="margin-left:auto"><kbd>?</kbd> all shortcuts</span>
+    </footer>
+</div>
+
+@if (OpenTask is { } open)
+{
+    <TaskDrawer @ref="_drawer" Task="open" LastAgent="@_lastAgent" Revision="_rev"
+                OnClose="CloseDrawer" OnChanged="Reload" OnDeleted="AfterDelete"
+                OnMoveTo="lane => MoveTo(open.Id, lane)" OnAssign="a => Assign(open.Id, a)"                OnChooseAgent="() => ChooseAgent(open.Id)" OnGive="() => Give(open.Id)" OnTake="() => Take(open.Id)" />
+}
+
+@if (_pickerFor is not null)
+{
+    <AgentPicker Agents="Api.Agents" LastAgent="@_lastAgent" OnPick="PickAgent" OnClose="() => _pickerFor = null" />
+}
+
+@if (_showShortcuts)
+{
+    <ShortcutsDialog OnClose="() => _showShortcuts = false" />
+}
+
+@code {
+    private static readonly BoardLane[] Lanes = Enum.GetValues<BoardLane>();
+    private static readonly string[] Hints = ["Untriaged", "Ready for the assignee", "In progress", "Last 14 days"];
+
+    /// <summary>From the route (/board/{id}). 0 on "/", which sends the user to the board shown last (or the first one).</summary>
+    [Parameter] public int BoardId { get; set; }
+
+    private readonly Lane?[] _laneRefs = new Lane?[4];
+    private TopBar? _topBar;
+    private TaskDrawer? _drawer;
+    private readonly BoardFilter _filter = new();
+    private List<TaskVm> _all = new();
+    private string _presenceText = "";
+    private int? _focusedId, _openId, _dragId, _pickerFor;
+    private DropTarget? _over;
+    private bool _showShortcuts, _scrollPending, _reloadAfterDrag;
+    private readonly CancellationTokenSource _life = new();   // cancelled when the page goes away
+    private BoardSearchVm? _search;   // the server's answer for the search box (active matches and the Archived group)
+    private string _searchedFor = "";
+    private CancellationTokenSource? _searchCts;
+
+    /// <summary>How long typing in the search box pauses before the server search runs.</summary>
+    public static TimeSpan SearchDelay { get; set; } = TimeSpan.FromMilliseconds(250);
+    private int _rev;   // bumped when a write fails, so the drawer redraws inputs that still show the rejected change
+    private string? _lastAgent;   // the agent last given a task; until one was, the first active agent
+    private DotNetObjectReference<Board>? _self;
+    private int _shownBoardId, _ticket;
+    private string? _shownBoardName;
+    private bool _loaded, _hubStarted;
+
+    // An archived task opened from the search's Archived group is not on the board; the client holds it aside.
+    private TaskVm? OpenTask => _openId is int id ? _all.FirstOrDefault(t => t.Id == id) ?? Api.Find(id) : null;
+
+    private string SearchText => _filter.Search.Trim();
+
+    private string ArchiveLink(string? query) =>
+        $"board/{_shownBoardId}/archive" + (string.IsNullOrWhiteSpace(query) ? "" : "?q=" + Uri.EscapeDataString(query));
+
+    /// <summary>The name of the board on screen (follows a rename made in another tab).</summary>
+    private string? BoardName => Api.Boards.FirstOrDefault(b => b.Id == _shownBoardId)?.Name ?? _shownBoardName;
+
+    protected override void OnInitialized()
+    {
+        Api.Changed += OnRemoteChanged;
+        Api.BoardsChanged += OnBoardsChanged;
+        Hub.StateChanged += OnHubState;
+    }
+
+    /// <summary>Runs on first load and on every board switch (the same page instance serves every /board/{id}).</summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        var ticket = ++_ticket;   // a newer navigation supersedes this one
+        IReadOnlyList<BoardDto> boards;
+        try { boards = await Api.GetBoardsAsync(); }
+        catch (ApiException e)
+        {
+            Notices.Show(NoticeLevel.Error, e.IsOffline ? "Could not reach the server, so the boards could not be loaded." : e.Message, "Retry", () => InvokeAsync(OnParametersSetAsync));
+            return;
+        }
+        if (ticket != _ticket || boards.Count == 0) return;
+
+        var target = BoardId;
+        if (target == 0)
+        {
+            var last = await JS.InvokeAsync<int>("doiq.lastBoard");
+            target = boards.Any(b => b.Id == last) ? last : boards[0].Id;
+            Nav.NavigateTo($"board/{target}", replace: true);
+            return;
+        }
+        if (boards.All(b => b.Id != target))
+        {
+            Notices.Show(NoticeLevel.Warning, "That board does not exist (any more). Showing another one.");
+            Nav.NavigateTo("", replace: true);
+            return;
+        }
+
+        if (target != _shownBoardId || !_loaded)
+        {
+            // A fresh board: nothing of the previous one stays on screen or selected.
+            _shownBoardId = target;
+            _shownBoardName = boards.First(b => b.Id == target).Name;
+            _all = new();
+            _loaded = false;
+            _openId = _focusedId = _dragId = _pickerFor = null;
+            _over = null;
+            _reloadAfterDrag = false;
+            _search = null;
+            _searchedFor = "";
+            _topBar?.CloseBoardMenu();
+            StateHasChanged();
+            await Api.SelectBoardAsync(target);
+            if (ticket != _ticket) return;
+            await JS.InvokeVoidAsync("doiq.rememberBoard", target);
+            await Reload();
+            if (ticket != _ticket) return;
+            _lastAgent = Api.Agents.Contains(_lastAgent ?? "") ? _lastAgent : Api.Agents.FirstOrDefault();
+            FilterChanged();   // a search typed before the switch now runs against this board
+        }
+        if (!_hubStarted)
+        {
+            _hubStarted = true;
+            _ = Hub.StartAsync();   // keeps retrying in the background; the top bar shows how it is going
+        }
+    }
+
+    private void GoToBoard(int id)
+    {
+        if (id != _shownBoardId) Nav.NavigateTo($"board/{id}");
+    }
+
+    private void SwitchRelative(int dir)
+    {
+        var boards = Api.Boards;
+        var i = boards.ToList().FindIndex(b => b.Id == _shownBoardId);
+        if (boards.Count < 2 || i < 0) return;
+        GoToBoard(boards[(i + dir + boards.Count) % boards.Count].Id);
+    }
+
+    /// <summary>A board was added, renamed or deleted (here or in another tab). If it was the one shown, leave it.</summary>
+    private void OnBoardsChanged() => _ = InvokeAsync(() =>
+    {
+        if (_shownBoardId != 0 && Api.Boards.Count > 0 && Api.Boards.All(b => b.Id != _shownBoardId))
+            LeaveDeletedBoard();
+        else
+            StateHasChanged();
+    });
+
+    private void LeaveDeletedBoard()
+    {
+        Notices.Show(NoticeLevel.Warning, $"The board “{_shownBoardName}” was deleted in another tab. Showing another board.");
+        _shownBoardId = 0;
+        _all = new();
+        _openId = _focusedId = null;
+        Nav.NavigateTo("", replace: true);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("doiq.init", _self, "board");
+        }
+        if (_scrollPending && _focusedId is int id)
+        {
+            _scrollPending = false;
+            await JS.InvokeVoidAsync("doiq.scrollTo", $"#card-{id}");
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Api.Changed -= OnRemoteChanged;
+        Api.BoardsChanged -= OnBoardsChanged;
+        Hub.StateChanged -= OnHubState;
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _life.Cancel();
+        _life.Dispose();
+        try { await JS.InvokeVoidAsync("doiq.dispose", "board"); } catch { /* circuit or page already gone */ }
+        _self?.Dispose();
+    }
+
+    private void OnHubState() => _ = InvokeAsync(StateHasChanged);
+
+    private void OnRemoteChanged() => _ = InvokeAsync(ApplyRemote);
+
+    private async Task ApplyRemote()
+    {
+        // Cards stay exactly where they are while one is being dragged; the board catches up when the drag ends.
+        if (_dragId is not null) { _reloadAfterDrag = true; return; }
+        await Reload();
+        if (OpenTask is { Unread: true } open)
+        {
+            // The drawer is open on it, so what just arrived is being read: render it with its markers, then mark it seen.
+            await System.Threading.Tasks.Task.Yield();
+            await MarkSeen(open.Id);
+            await Reload();
+        }
+    }
+
+    /// <summary>Marking seen is housekeeping: if it fails the task simply stays unread, so it is not worth a notice.</summary>
+    private async Task MarkSeen(int id)
+    {
+        try { await Api.MarkSeenAsync(id); }
+        catch (ApiException) { /* stays unread; the next open tries again */ }
+    }
+
+    private void DragEnded()
+    {
+        _dragId = null;
+        _over = null;
+        if (_reloadAfterDrag) { _reloadAfterDrag = false; _ = InvokeAsync(ApplyRemote); }
+    }
+
+    private async Task Reload()
+    {
+        try { _all = (await Api.GetBoard(_life.Token)).ToList(); }
+        catch (OperationCanceledException) { return; }   // the page went away
+        catch (ApiException e) when (e.Status == System.Net.HttpStatusCode.NotFound)
+        {
+            LeaveDeletedBoard();   // the board itself is gone
+            return;
+        }
+        catch (ApiException e)
+        {
+            // The board could not be read (first load, server down): keep what is on screen and say so.
+            Notices.Show(NoticeLevel.Error, e.IsOffline ? "Could not reach the server, so the board is not up to date." : e.Message, "Retry", Reload);
+            StateHasChanged();
+            return;
+        }
+        _loaded = true;
+        if (_openId is int open && _all.All(t => t.Id != open) && Api.Find(open) is null) _openId = null;   // deleted elsewhere
+        if (_focusedId is int focus && _all.All(t => t.Id != focus)) _focusedId = null;
+        var p = await Api.GetPresenceAsync();
+        _presenceText = p.LastSeen is { } seen
+            ? $"{p.ActiveAgents} agents active · {p.LastAgent} {Fmt.Ago(seen)}"
+            : $"{p.ActiveAgents} agents active";
+        StateHasChanged();
+    }
+
+    /// <summary>The top bar changed the filter. A changed search text (re)starts the server search after a short pause.</summary>
+    private void FilterChanged()
+    {
+        if (SearchText != _searchedFor)
+        {
+            _searchedFor = SearchText;
+            _ = ScheduleSearch(SearchText, _life.Token);
+        }
+        StateHasChanged();
+    }
+
+    private async Task ScheduleSearch(string query, CancellationToken ct)
+    {
+        _searchCts?.Cancel();
+        _searchCts?.Dispose();
+        _searchCts = null;
+        if (query.Length == 0)
+        {
+            _search = null;
+            return;
+        }
+        var cts = _searchCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        try
+        {
+            await System.Threading.Tasks.Task.Delay(SearchDelay, cts.Token);
+            await RunSearch(query, cts.Token);
+        }
+        catch (OperationCanceledException) { /* typed on, or left the page */ }
+    }
+
+    /// <summary>
+    /// Asks the server: the board's own cards only carry their lists once opened, so description, field, comment and
+    /// checklist matches come from there, and so does the Archived group.
+    /// </summary>
+    private async Task RunSearch(string query, CancellationToken ct)
+    {
+        try
+        {
+            var found = await Api.SearchBoard(query, ct);
+            if (query != SearchText) return;   // the box changed meanwhile
+            _search = found;
+        }
+        catch (ApiException e)
+        {
+            Notices.Show(NoticeLevel.Error, e.IsOffline ? "Could not reach the server, so the search only looked at titles." : e.Message);
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task SignOut()
+    {
+        try { await Api.LogoutAsync(); } catch (ApiException) { /* signed out locally either way */ }
+        Auth.Set(AuthStatus.SignedOut);
+    }
+
+    // ---- filtering and sorting ----
+
+    private bool NeedsMe(TaskVm t) => !t.Archived && t.Assignee.Kind == AssigneeKind.User && t.Lane == BoardLane.Waiting;
+    private int NeedsMeCount => _all.Count(NeedsMe);
+
+    private IEnumerable<TaskVm> FilteredBase()
+    {
+        IEnumerable<TaskVm> q = _all.Where(t => !t.Archived);
+
+        q = _filter.Assignee switch
+        {
+            AssigneeFilter.Me => q.Where(t => t.Assignee.Kind == AssigneeKind.User),
+            AssigneeFilter.Unassigned => q.Where(t => t.Assignee.Kind == AssigneeKind.None),
+            AssigneeFilter.Agents => q.Where(t => _filter.AgentName is null
+                ? t.Assignee.Kind is AssigneeKind.Agent or AssigneeKind.Pool
+                : t.Assignee.Agent == _filter.AgentName || t.Assignee.ClaimedBy == _filter.AgentName),
+            _ => q,
+        };
+        if (_filter.NeedsMe) q = q.Where(NeedsMe);
+
+        var s = SearchText;
+        // The server's matches once it answered for this text; what the client holds (titles, opened cards) right away.
+        var server = _search is { } found && found.Query == s ? found.ActiveIds : null;
+        if (s.Length > 0)
+            q = q.Where(t => server?.Contains(t.Id) == true || Has(t.Title, s) || Has(t.Description, s)
+                || t.Fields.Any(f => Has(f.Name, s) || Has(f.Body, s))
+                || t.Comments.Any(c => Has(c.Body, s))
+                || t.Subtasks.Any(x => Has(x.Title, s)));
+        return q;
+    }
+
+    private static bool Has(string text, string needle) => text.Contains(needle, StringComparison.OrdinalIgnoreCase);
+
+    private IReadOnlyList<TaskVm> Visible(BoardLane lane)
+    {
+        var q = FilteredBase().Where(t => t.Lane == lane);
+
+        q = _filter.Sort switch
+        {
+            SortMode.RecentlyUpdated => q.OrderByDescending(t => t.UpdatedAt),
+            SortMode.Created => q.OrderByDescending(t => t.CreatedAt),
+            SortMode.DueDate => q.OrderBy(t => t.Due is null).ThenBy(t => t.Due),
+            SortMode.Title => q.OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase),
+            _ => q,
+        };
+        return q.ToList();
+    }
+
+    private TaskVm? Dragged => _dragId is int id ? _all.FirstOrDefault(t => t.Id == id) : null;
+
+    /// <summary>Under a non-priority sort a card may only change lane, never position: dropping on its own lane is not a target.</summary>
+    private bool NoDrop(BoardLane lane) => !_filter.CanReorder && Dragged?.Lane == lane;
+
+    private void DragOver(DropTarget t)
+    {
+        if (NoDrop(t.Lane)) { _over = null; return; }
+        _over = _filter.CanReorder ? t : new DropTarget(t.Lane, null);   // another lane: bottom, no position to pick
+    }
+
+    // ---- actions ----
+
+    /// <summary>
+    /// Runs one write from the board. A failure becomes a notice, the drawer is told to redraw from the server's values and
+    /// the board reloads, so nothing keeps showing a change the server did not take. True when the write went through.
+    /// </summary>
+    private async Task<bool> Do(Func<Task> write)
+    {
+        var err = await Notices.TryAsync(write);
+        if (err is not null) _rev++;
+        await Reload();
+        // A write can move a task in or out of the search's matches (reopening an archived one, for a start).
+        if (SearchText.Length > 0) await RunSearch(SearchText, _life.Token);
+        return err is null;
+    }
+
+    private async Task QuickAdd(string title)
+    {
+        TaskVm? created = null;
+        if (!await Do(async () => created = await Api.CreateTaskAsync(title)))
+        {
+            _laneRefs[(int)BoardLane.New]?.SetDraft(title);   // give the typed text back
+            return;
+        }
+        _focusedId = created!.Id;
+        _scrollPending = true;
+        StateHasChanged();
+    }
+
+    private async Task FocusQuickAdd()
+    {
+        if (_laneRefs[0] is { } l) await l.FocusQuickAdd();
+    }
+
+    private async Task Open(int id)
+    {
+        if (_all.Any(t => t.Id == id)) _focusedId = id;
+        _openId = id;
+        StateHasChanged();
+        // The board holds counts only: the description and lists load now. Render once with their unread markers so
+        // the drawer can capture them, then mark the task seen.
+        try
+        {
+            if (await Api.LoadTask(id, _life.Token) is null) Notices.Show(NoticeLevel.Warning, "That task was deleted.");
+        }
+        catch (ApiException e) { Notices.ShowFailure(e); }
+        catch (OperationCanceledException) { return; }
+        await Reload();
+        if (_openId != id) return;
+        await System.Threading.Tasks.Task.Yield();
+        await MarkSeen(id);
+        await Reload();
+    }
+
+    private void CloseDrawer() => _openId = null;
+
+    private async Task AfterDelete()
+    {
+        _openId = null;
+        _focusedId = null;
+        await Reload();
+    }
+
+    private async Task MoveTo(int id, BoardLane lane, int? before = null)
+    {
+        // The one place a position can leave the board: without the priority sort there is none to give.
+        if (!_filter.CanReorder) before = null;
+        await Do(() => Api.MoveAsync(id, lane, before));
+    }
+
+    private async Task Assign(int id, AssigneeVm who)
+    {
+        if (who.Kind == AssigneeKind.Agent && who.Agent is not null) _lastAgent = who.Agent;
+        await Do(() => Api.AssignAsync(id, who));
+    }
+
+    /// <summary>Gives the task to the last agent used; with no agent known yet the agent menu opens instead.</summary>
+    private Task Give(int id)
+    {
+        if (_lastAgent is null)
+        {
+            ChooseAgent(id);
+            return Task.CompletedTask;
+        }
+        return Assign(id, AssigneeVm.ForAgent(_lastAgent));
+    }
+    private Task Take(int id) => Assign(id, AssigneeVm.UserVm);
+    private void ChooseAgent(int id) => _pickerFor = id;
+
+    private async Task PickAgent(AssigneeVm who)
+    {
+        if (_pickerFor is int id) await Assign(id, who);
+        _pickerFor = null;
+    }
+
+    private async Task Drop()
+    {
+        if (_dragId is int id && _over is { } target && !NoDrop(target.Lane))
+        {
+            _dragId = null;
+            _over = null;
+            await MoveTo(id, target.Lane, target.BeforeId);
+        }
+        DragEnded();
+    }
+
+    // ---- keyboard ----
+
+    [JSInvokable]
+    public async Task OnKey(string key, bool shift, bool alt)
+    {
+        var k = key.Length == 1 ? key.ToLowerInvariant() : key;
+
+        if (k == "Escape")
+        {
+            if (_topBar is { BoardMenuOpen: true }) _topBar.CloseBoardMenu();
+            else if (_showShortcuts) _showShortcuts = false;
+            else if (_pickerFor is not null) _pickerFor = null;
+            else if (_openId is not null) _openId = null;
+            StateHasChanged();
+            return;
+        }
+        if (_showShortcuts || _pickerFor is not null) { if (k == "?") _showShortcuts = false; StateHasChanged(); return; }
+
+        if (_topBar is { BoardMenuOpen: true }) { if (k == "b") _topBar.CloseBoardMenu(); return; }   // the open menu owns the keys (Tab, Enter) until it closes
+
+        switch (k)
+        {
+            case "b" when _openId is null: _topBar?.ToggleBoardMenu(); return;
+            case "h" when shift && _openId is null: SwitchRelative(-1); return;
+            case "l" when shift && _openId is null: SwitchRelative(1); return;
+            case "?": _showShortcuts = true; break;
+            case ",": Nav.NavigateTo("settings"); return;
+            case "n": await FocusQuickAdd(); return;
+            case "/": if (_topBar is not null) await _topBar.FocusSearch(); return;
+            case "f": _filter.NeedsMe = !_filter.NeedsMe; break;
+            case "a" when shift && _openId is null: Nav.NavigateTo(ArchiveLink(null)); return;
+            case "j": Step(1); break;
+            case "k": Step(-1); break;
+            case "h": StepLane(-1); break;
+            case "l": StepLane(1); break;
+            case "Enter": if (_focusedId is int f) await Open(f); return;
+            case "c" or "i" or "s" when _drawer is not null: await _drawer.HandleKey(k); return;
+            case "1" or "2" or "3" or "4": if (Target is int t1) await MoveTo(t1, (BoardLane)(k[0] - '1')); return;
+            case "g": if (Target is int g) { if (shift) ChooseAgent(g); else await Give(g); } break;
+            case "t": if (Target is int t) await Take(t); return;
+            case "ArrowUp" when alt: await Reorder(-1); return;
+            case "ArrowDown" when alt: await Reorder(1); return;
+            case "Home" when alt: await ReorderEdge(true); return;
+            case "End" when alt: await ReorderEdge(false); return;
+        }
+        StateHasChanged();
+    }
+
+    private int? Target => _focusedId;
+
+    private TaskVm? Focused => _focusedId is int id ? _all.FirstOrDefault(t => t.Id == id) : null;
+
+    private void Step(int dir)
+    {
+        var flat = Lanes.SelectMany(Visible).ToList();
+        if (flat.Count == 0) return;
+        // Move within the focused lane; fall through to the first card if nothing is focused.
+        var cur = Focused;
+        if (cur is null) { SetFocus(flat[dir > 0 ? 0 : ^1]); return; }
+        var lane = Visible(cur.Lane);
+        var i = lane.ToList().FindIndex(t => t.Id == cur.Id);
+        var n = Math.Clamp(i + dir, 0, lane.Count - 1);
+        SetFocus(lane[n]);
+    }
+
+    private void StepLane(int dir)
+    {
+        var cur = Focused;
+        if (cur is null) { Step(1); return; }
+        var idx = Visible(cur.Lane).ToList().FindIndex(t => t.Id == cur.Id);
+        for (var l = (int)cur.Lane + dir; l >= 0 && l < Lanes.Length; l += dir)
+        {
+            var list = Visible((BoardLane)l);
+            if (list.Count == 0) continue;
+            SetFocus(list[Math.Min(idx, list.Count - 1)]);
+            return;
+        }
+    }
+
+    private void SetFocus(TaskVm t)
+    {
+        _focusedId = t.Id;
+        _scrollPending = true;
+        if (_openId is not null && _openId != t.Id) _ = InvokeAsync(() => Open(t.Id));
+    }
+
+    private async Task Reorder(int dir)
+    {
+        if (!_filter.CanReorder || Focused is not { } cur) return;
+        var lane = Visible(cur.Lane).ToList();
+        var i = lane.FindIndex(t => t.Id == cur.Id);
+        var j = i + dir;
+        if (j < 0 || j >= lane.Count) return;
+        // Up: before the previous card. Down: before the card after the next one, or the bottom.
+        int? before = dir < 0 ? lane[j].Id : (j + 1 < lane.Count ? lane[j + 1].Id : null);
+        _scrollPending = true;
+        await MoveTo(cur.Id, cur.Lane, before);
+    }
+
+    private async Task ReorderEdge(bool top)
+    {
+        if (!_filter.CanReorder || Focused is not { } cur) return;
+        var lane = Visible(cur.Lane);
+        if (lane.Count < 2) return;
+        _scrollPending = true;
+        await MoveTo(cur.Id, cur.Lane, top ? lane[0].Id : null);
+    }
+}

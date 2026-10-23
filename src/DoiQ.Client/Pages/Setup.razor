@@ -1,0 +1,43 @@
+@page "/setup"
+@inject IDoiQApiClient Api
+@inject AuthState Auth
+
+<PageTitle>DoiQ, set a password</PageTitle>
+
+<div class="auth-page">
+    <form class="auth-card" @onsubmit="Submit">
+        <div class="brand"><Icon Name="logo" Size="22" /><h1>DoiQ</h1></div>
+        <h2>Set a password</h2>
+        <p class="muted">First run. Choose the password you will sign in with. You can change it later in Settings.</p>
+
+        <label for="pw">Password</label>
+        <input id="pw" class="field" type="password" autocomplete="new-password" @bind="_password" @bind:event="oninput" />
+        <label for="pw2">Confirm password</label>
+        <input id="pw2" class="field" type="password" autocomplete="new-password" @bind="_confirm" @bind:event="oninput" />
+
+        @if (_error is not null) { <p class="form-error" role="alert">@_error</p> }
+        <button type="submit" class="btn btn-primary" disabled="@_busy">Set password and continue</button>
+    </form>
+</div>
+
+@code {
+    private string _password = "", _confirm = "";
+    private string? _error;
+    private bool _busy;
+
+    private async Task Submit()
+    {
+        _error = null;
+        if (_password.Length < 8) { _error = "Use at least 8 characters."; return; }
+        if (_password != _confirm) { _error = "The two passwords do not match."; return; }
+        _busy = true;
+        try
+        {
+            await Api.SetupAsync(_password);
+            // The server signs the user in as part of setup; confirm before landing on the board.
+            Auth.Set(await Api.IsSignedInAsync() ? AuthStatus.SignedIn : AuthStatus.SignedOut);
+        }
+        catch (ApiException e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+}

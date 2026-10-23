@@ -1,0 +1,38 @@
+@page "/login"
+@inject IDoiQApiClient Api
+@inject AuthState Auth
+
+<PageTitle>DoiQ, sign in</PageTitle>
+
+<div class="auth-page">
+    <form class="auth-card" @onsubmit="Submit">
+        <div class="brand"><Icon Name="logo" Size="22" /><h1>DoiQ</h1></div>
+        <h2>Sign in</h2>
+
+        <label for="pw">Password</label>
+        <input id="pw" class="field" type="password" autocomplete="current-password" @bind="_password" @bind:event="oninput" />
+
+        @if (_error is not null) { <p class="form-error" role="alert">@_error</p> }
+        <button type="submit" class="btn btn-primary" disabled="@_busy">Sign in</button>
+    </form>
+</div>
+
+@code {
+    private string _password = "";
+    private string? _error;
+    private bool _busy;
+
+    private async Task Submit()
+    {
+        _error = null;
+        if (_password.Length == 0) { _error = "Enter your password."; return; }
+        _busy = true;
+        try
+        {
+            await Api.LoginAsync(_password);
+            Auth.Set(AuthStatus.SignedIn);
+        }
+        catch (ApiException e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+}

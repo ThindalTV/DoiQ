@@ -1,0 +1,42 @@
+@switch (Name)
+{
+    case "calendar":
+        <svg width="@Size" height="@Size" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="2" width="10" height="9" fill="none" stroke="#a99bc6" stroke-width="1.25" /><path d="M1 5h10M4 1v2M8 1v2" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "subtasks":
+        <svg width="@Size" height="@Size" viewBox="0 0 12 12" aria-hidden="true"><rect x="1" y="1" width="10" height="10" fill="none" stroke="#a99bc6" stroke-width="1.25" /><path d="M3.5 6l1.8 1.8L8.5 4.3" fill="none" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "fields":
+        <svg width="@Size" height="@Size" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 3h8M2 6h8M2 9h5" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "comment":
+        <svg width="@Size" height="@Size" viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 2h9v6H6l-3 2.5V8H1.5z" fill="none" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "mail":
+        <svg width="@Size" height="@Size" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="3" width="12" height="8" fill="none" stroke="#a99bc6" stroke-width="1.25" /><path d="M1.5 3.5L7 8l5.5-4.5" fill="none" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "plus":
+        <svg width="@Size" height="@Size" viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1v12M1 7h12" stroke="@Stroke" stroke-width="1.75" /></svg>
+        break;
+    case "search":
+        <svg width="@Size" height="@Size" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="#a99bc6" stroke-width="1.5" /><path d="M11 11l4 4" stroke="#a99bc6" stroke-width="1.5" /></svg>
+        break;
+    case "chevron":
+        <svg width="@Size" height="@Size" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5l3 3 3-3" fill="none" stroke="#e7ddf6" stroke-width="1.5" /></svg>
+        break;
+    case "close":
+        <svg width="@Size" height="@Size" viewBox="0 0 12 12" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="#e7ddf6" stroke-width="1.5" /></svg>
+        break;
+    case "pencil":
+        <svg width="@Size" height="@Size" viewBox="0 0 14 14" aria-hidden="true"><path d="M2 12l1-3 6.5-6.5 2 2L5 11z" fill="none" stroke="#a99bc6" stroke-width="1.25" /></svg>
+        break;
+    case "logo":
+        <svg width="@Size" height="@Size" viewBox="0 0 22 22" aria-hidden="true"><path d="M3 2 L19 11 L3 20 Z" fill="none" stroke="#e7ddf6" stroke-width="1.5" /><path d="M3 2 L11 11 L3 20" fill="none" stroke="#cbbee2" stroke-width="1" /></svg>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public string Name { get; set; } = "";
+    [Parameter] public int Size { get; set; } = 12;
+    [Parameter] public string Stroke { get; set; } = "#ffffff";
+}

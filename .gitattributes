@@ -1,0 +1,17 @@
+# Normalise line endings in the repository; check out with the platform's native endings by default.
+* text=auto
+
+# Files that run inside Linux containers must keep LF even on Windows checkouts,
+# otherwise `#!/bin/sh` scripts fail with "/bin/sh^M: not found".
+*.sh            text eol=lf
+Dockerfile      text eol=lf
+*.dockerfile    text eol=lf
+docker-compose*.yml text eol=lf
+.dockerignore   text eol=lf
+
+# Binary assets
+*.png  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
+*.db   binary

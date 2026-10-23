@@ -1,0 +1,31 @@
+@inject IJSRuntime JS
+
+@* A modal the user must answer. Focus starts on Cancel, Tab stays inside, Esc and the scrim cancel; only the confirm button confirms. *@
+<div class="scrim top" @onclick="OnCancel"></div>
+<div id="confirm-dialog" class="dialog small confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body">
+    <h2 id="confirm-title">@Title</h2>
+    <div id="confirm-body" class="confirm-body">@ChildContent</div>
+    <div class="form-actions">
+        <button type="button" id="confirm-cancel" class="btn" @ref="_cancel" disabled="@Busy" @onclick="OnCancel">@CancelText</button>
+        <button type="button" id="confirm-ok" class="btn btn-danger" disabled="@Busy" @onclick="OnConfirm">@ConfirmText</button>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = "";
+    [Parameter] public string ConfirmText { get; set; } = "Confirm";
+    [Parameter] public string CancelText { get; set; } = "Cancel";
+    [Parameter] public bool Busy { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public EventCallback OnConfirm { get; set; }
+    [Parameter] public EventCallback OnCancel { get; set; }
+
+    private ElementReference _cancel;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        await _cancel.FocusAsync();
+        await JS.InvokeVoidAsync("doiq.trapFocus", "#confirm-dialog");
+    }
+}

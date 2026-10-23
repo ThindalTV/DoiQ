@@ -1,0 +1,57 @@
+<div id="card-@Task.Id" class="card @(Focused ? "is-focused" : "") @(Dragging ? "is-dragging" : "") @(Task.Archived ? "is-archived" : "")"
+     role="button" tabindex="0" draggable="true"
+     @onclick="() => OnOpen.InvokeAsync(Task.Id)"
+     @onfocus="() => OnFocus.InvokeAsync(Task.Id)"
+     @ondragstart="() => OnDragStart.InvokeAsync(Task.Id)"
+     @ondragend="() => OnDragEnd.InvokeAsync()">
+    <div class="card-title">
+        <span class="t">@Task.Title</span>
+        @if (Task.Unread)
+        {
+            <span class="unread-dot" title="Changed by an agent since you looked"></span>
+            <span class="sr">Unread change</span>
+        }
+    </div>
+    <div class="card-meta">
+        @if (Task.Assignee.Kind == AssigneeKind.None)
+        {
+            <span class="unassigned"><Avatar Assignee="Task.Assignee" Size="av-sm" />Unassigned</span>
+        }
+        else
+        {
+            <span class="who"><Avatar Assignee="Task.Assignee" />@Task.Assignee.Label</span>
+        }
+        <span class="icons">
+            @if (Task.FromEmail)
+            {
+                <span><Icon Name="mail" Size="14" /><span class="sr">From email</span></span>
+            }
+            @if (Task.Due is DateOnly due)
+            {
+                <span class="@(due < DateOnly.FromDateTime(DateTime.Today) && Task.Lane != BoardLane.Done ? "overdue" : "")"><Icon Name="calendar" /><span class="sr">Due</span>@Fmt.Due(due)</span>
+            }
+            @if (Task.SubtaskCount > 0)
+            {
+                <span><Icon Name="subtasks" /><span class="sr">Subtasks done</span>@Task.SubtaskDoneCount/@Task.SubtaskCount</span>
+            }
+            @if (Task.FieldCount > 0)
+            {
+                <span><Icon Name="fields" /><span class="sr">Info fields</span>@Task.FieldCount</span>
+            }
+            @if (Task.CommentCount > 0)
+            {
+                <span><Icon Name="comment" /><span class="sr">Comments</span>@Task.CommentCount</span>
+            }
+        </span>
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public TaskVm Task { get; set; } = default!;
+    [Parameter] public bool Focused { get; set; }
+    [Parameter] public bool Dragging { get; set; }
+    [Parameter] public EventCallback<int> OnOpen { get; set; }
+    [Parameter] public EventCallback<int> OnFocus { get; set; }
+    [Parameter] public EventCallback<int> OnDragStart { get; set; }
+    [Parameter] public EventCallback OnDragEnd { get; set; }
+}

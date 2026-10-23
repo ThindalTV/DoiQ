@@ -1,0 +1,435 @@
+@inject IDoiQApiClient Api
+@inject IJSRuntime JS
+@inject NoticeService Notices
+
+<div class="scrim" @onclick="OnClose"></div>
+<aside class="drawer" role="dialog" aria-label="Task details">
+    <div class="drawer-head">
+        <span class="mono">#@Task.Id</span>
+        <span>@Task.Lane</span>
+        <span>·</span>
+        <span>Updated by @Fmt.Person(Task.UpdatedBy) @Fmt.Ago(Task.UpdatedAt)</span>
+        <button type="button" class="close" aria-label="Close (Esc)" @onclick="OnClose"><kbd>Esc</kbd><Icon Name="close" /></button>
+    </div>
+
+    <div class="drawer-body" @key="Task.Id">
+        <div class="sec" style="gap:6px">
+            <label for="task-title" class="sr">Title</label>
+            <input id="task-title" class="title-input" type="text" value="@(_titleDraft ?? Task.Title)" @key="@("title" + Rev)" @onfocus="() => _titleBase = Task.Version"
+                   @oninput="e => _titleDraft = e.Value?.ToString()" @onchange="SaveTitle" />
+            @if (_titleStash is not null)
+            {
+                <div class="stash" role="group" aria-label="Your unsaved title">
+                    <span>Your title: <q>@_titleStash</q></span>
+                    <button type="button" class="btn btn-sm" @onclick="ApplyTitleStash">Save it over</button>
+                    <button type="button" class="btn btn-sm btn-quiet" @onclick="() => _titleStash = null">Discard</button>
+                </div>
+            }
+            <span class="muted" style="font-size:12px">Created by @Fmt.Person(Task.CreatedBy)@(Task.FromEmail ? " from an email" : ""), @Fmt.When(Task.CreatedAt)</span>
+        </div>
+
+        <div class="props">
+            <label for="task-status" class="k">Status</label>
+            <select id="task-status" @key="@("status" + Rev)" @onchange="e => OnMoveTo.InvokeAsync(Enum.Parse<BoardLane>(e.Value!.ToString()!))">
+                @foreach (var l in Enum.GetValues<BoardLane>())
+                {
+                    <option value="@l" selected="@(l == Task.Lane)">@l</option>
+                }
+            </select>
+
+            <span id="assignee-label" class="k">Assignee</span>
+            <div role="group" aria-labelledby="assignee-label" class="seg seg-sm">
+                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.User)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.UserVm)">
+                    <Avatar Assignee="AssigneeVm.UserVm" Size="av-sm" />@Fmt.HumanDisplay
+                </button>
+                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.Agent)" aria-haspopup="dialog" @onclick="OnChooseAgent">
+                    <Avatar Assignee="AssigneeVm.ForAgent(AgentLabel)" Size="av-sm" />Agent: @AgentLabel
+                    <Icon Name="chevron" Size="10" />
+                </button>
+                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.Pool)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.AnyAgent)">Any agent</button>
+                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.None)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.Unassigned)">None</button>
+            </div>
+
+            <label for="task-due" class="k">Due</label>
+            <div class="due-cell">
+                <input id="task-due" type="date" value="@Task.Due?.ToString("yyyy-MM-dd")" @key="@("due" + Rev)" @onfocus="() => _dueBase = Task.Version" @onchange="SaveDue" />
+                @if (_dueStash is { } ds)
+                {
+                    <div class="stash" role="group" aria-label="Your unsaved due date">
+                        <span>Your date: <q>@(ds.Value is { } dv ? Fmt.Due(dv) : "none")</q></span>
+                        <button type="button" class="btn btn-sm" @onclick="ApplyDueStash">Save it over</button>
+                        <button type="button" class="btn btn-sm btn-quiet" @onclick="() => _dueStash = null">Discard</button>
+                    </div>
+                }
+            </div>
+
+            @if (Task.FromEmail)
+            {
+                <span class="k">Source</span>
+                <span class="src"><Icon Name="mail" Size="14" />Email, received @Fmt.When(Task.CreatedAt)</span>
+            }
+        </div>
+
+        <section class="sec" aria-labelledby="desc-h">
+            <div class="sec-head">
+                <h3 id="desc-h">Description</h3>
+                @if (!_editDesc)
+                {
+                    <button type="button" class="btn btn-link right" @onclick="StartEditDesc">Edit</button>
+                }
+            </div>
+            @if (_editDesc)
+            {
+                <label class="sr" for="desc-edit">Description (markdown)</label>
+                <textarea id="desc-edit" class="field" rows="6" @bind="_descDraft" @bind:event="oninput"></textarea>
+                @if (_descConflict)
+                {
+                    <details class="conflict-latest">
+                        <summary>Latest saved description</summary>
+                        <div class="md">@Md(Task.Description)</div>
+                    </details>
+                }
+                <div class="form-actions">
+                    <button type="button" class="btn btn-primary btn-sm" @onclick="SaveDesc">Save</button>
+                    <button type="button" class="btn btn-sm" @onclick="() => _editDesc = false">Cancel</button>
+                </div>
+            }
+            else if (string.IsNullOrWhiteSpace(Task.Description))
+            {
+                <p class="muted" style="margin:0">No description yet.</p>
+            }
+            else
+            {
+                <div class="md">@Md(Task.Description)</div>
+            }
+        </section>
+
+        <section class="sec" aria-labelledby="subs-h">
+            <div class="sec-head">
+                <h3 id="subs-h">Subtasks</h3>
+                @if (Task.Subtasks.Count > 0)
+                {
+                    <span class="mono muted" style="font-size:12px">@Task.SubtasksDone of @Task.Subtasks.Count</span>
+                    <span class="progress" aria-hidden="true"><span style="width:@(100 * Task.SubtasksDone / Task.Subtasks.Count)%"></span></span>
+                }
+            </div>
+            <ul class="subtasks">
+                @foreach (var s in Task.Subtasks)
+                {
+                    var sub = s;
+                    <li class="@(sub.Done ? "done" : "")" @key="@(sub.Id + ":" + Rev)">
+                        <input id="st-@sub.Id" type="checkbox" checked="@sub.Done" @onchange="e => ToggleSub(sub, e)" />
+                        <label for="st-@sub.Id">@sub.Title</label>
+                        <span class="who"><Avatar Assignee="sub.Assignee" Size="av-sm" />@sub.Assignee.Label</span>
+                    </li>
+                }
+                <li class="add">
+                    <Icon Name="plus" Size="12" Stroke="#a99bc6" />
+                    <label for="st-new" class="sr">Add a subtask</label>
+                    <input id="st-new" type="text" placeholder="Add a subtask (S), Enter to save" @bind="_newSub" @bind:event="oninput" @onkeydown="SubKey" />
+                </li>
+            </ul>
+        </section>
+
+        <section class="sec" style="gap:10px" aria-labelledby="info-h">
+            <div class="sec-head">
+                <h3 id="info-h">Info</h3>
+                <button type="button" class="btn btn-sm right" @onclick="() => StartField(null)"><Icon Name="plus" Size="10" Stroke="#e7ddf6" />Add field</button>
+            </div>
+
+            @foreach (var f in Task.Fields)
+            {
+                var field = f;
+                @if (_fieldId == field.Id)
+                {
+                    <div class="field-card" @key="field.Id">@FieldForm</div>
+                }
+                else
+                {
+                    <article class="field-card @(_newFieldIds.Contains(field.Id) ? "is-new" : "")" @key="field.Id">
+                        <header>
+                            <h4>@field.Name</h4>
+                            <span class="by">@Fmt.Person(field.Author) · @Fmt.Ago(field.UpdatedAt)</span>
+                            @if (_newFieldIds.Contains(field.Id)) { <span class="badge-new">New</span> }
+                            <button type="button" class="icon-btn" aria-label="Edit @field.Name" @onclick="() => StartField(field)"><Icon Name="pencil" Size="14" /></button>
+                        </header>
+                        <div class="md">@Md(field.Body)</div>
+                    </article>
+                }
+            }
+            @if (_fieldId == 0)
+            {
+                <div class="field-card">@FieldForm</div>
+            }
+        </section>
+
+        <section class="sec" style="gap:14px" aria-labelledby="disc-h">
+            <h3 id="disc-h" style="margin:0;font-family:var(--font-display);font-weight:400;font-size:16px;letter-spacing:.1em;text-transform:uppercase">Discussion</h3>
+
+            @{ var sepShown = false; }
+            @foreach (var c in Task.Comments)
+            {
+                @if (!sepShown && _newCommentIds.Contains(c.Id))
+                {
+                    sepShown = true;
+                    <div role="separator" class="new-sep"><span></span>New since you looked<span></span></div>
+                }
+                <div class="comment" @key="c.Id">
+                    <Avatar Assignee="c.IsUser ? AssigneeVm.UserVm : AssigneeVm.ForAgent(c.Author)" Size="av-lg" />
+                    <div class="body">
+                        <div class="head">
+                            <strong>@Fmt.Person(c.Author)</strong><span>@Fmt.Ago(c.At)</span>
+                            @if (_newCommentIds.Contains(c.Id)) { <span class="badge-new">New</span> }
+                        </div>
+                        <div class="md">@Md(c.Body)</div>
+                        @if (c.IsUser && Task.SeenByFor(c) is { Count: > 0 } seenBy)
+                        {
+                            <div class="receipt">Seen by @string.Join(", ", seenBy)</div>
+                        }
+                    </div>
+                </div>
+            }
+
+            <div class="reply">
+                <label for="reply">Add to the discussion</label>
+                <textarea id="reply" class="field" rows="3" placeholder="Write a comment. Markdown works."
+                          @bind="_reply" @bind:event="oninput" @onkeydown="ReplyKey"></textarea>
+                <div class="row">
+                    <span class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</span>
+                    <button type="button" class="btn btn-primary" @onclick="SendReply">Send</button>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <div class="drawer-foot">
+        @if (Task.Lane != BoardLane.Done)
+        {
+            var next = Task.Lane + 1;
+            <button type="button" class="btn btn-primary" @onclick="() => OnMoveTo.InvokeAsync(next)">Move to @next <kbd>@((int)next + 1)</kbd></button>
+        }
+        <button type="button" class="btn" @onclick="OnGive">Give to agent <kbd>G</kbd></button>
+        @if (Task.Assignee.Kind != AssigneeKind.User)
+        {
+            <button type="button" class="btn" @onclick="OnTake">Take it <kbd>T</kbd></button>
+        }
+        @if (_confirmDelete)
+        {
+            <button type="button" class="btn btn-quiet spacer" @onclick="() => _confirmDelete = false">Keep</button>
+            <button type="button" class="btn btn-primary" @onclick="Delete">Confirm delete</button>
+        }
+        else
+        {
+            <button type="button" class="btn btn-quiet spacer" @onclick="() => _confirmDelete = true">Delete task</button>
+        }
+    </div>
+</aside>
+
+@code {
+    [Parameter, EditorRequired] public TaskVm Task { get; set; } = default!;
+    [Parameter] public string? LastAgent { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+    /// <summary>Raised after a change the drawer saved itself, so the board reloads.</summary>
+    [Parameter] public EventCallback OnChanged { get; set; }
+    [Parameter] public EventCallback<BoardLane> OnMoveTo { get; set; }
+    [Parameter] public EventCallback<AssigneeVm> OnAssign { get; set; }
+    [Parameter] public EventCallback OnChooseAgent { get; set; }
+    [Parameter] public EventCallback OnGive { get; set; }
+    [Parameter] public EventCallback OnTake { get; set; }
+    [Parameter] public EventCallback OnDeleted { get; set; }
+    /// <summary>The board bumps this after a failed write so inputs that already show the user's rejected change draw the server's values again.</summary>
+    [Parameter] public int Revision { get; set; }
+
+    private static MarkupString Md(string? text) => SafeMarkdown.Render(text);
+
+    private int _shownId = -1;
+    private HashSet<int> _newCommentIds = new();
+    private HashSet<int> _newFieldIds = new();
+    private bool _editDesc;
+    private string _descDraft = "";
+    private string _newSub = "";
+    private string _reply = "";
+    private bool _confirmDelete;
+    private int _fieldId = -1; // -1 none, 0 new, else editing that field
+    private string _fName = "", _fBody = "";
+    private string? _focusAfterRender;
+    private int _rev;
+    // The Version each edit started from (taken when the field got focus or the editor opened): a change that lands
+    // while the user is typing then makes the save a conflict instead of silently overwriting it.
+    private long? _titleBase, _dueBase, _descBase;
+    // The user's text from a write that lost a conflict, kept so it can be put back.
+    private string? _titleStash;
+    private string? _titleDraft;   // what is typed in the title box; a push that changes the title must not wipe it
+    private DueStash? _dueStash;
+    private bool _descConflict;
+
+    private sealed record DueStash(DateOnly? Value);
+
+    private string Rev => (_rev + Revision).ToString();
+
+    private string AgentLabel => Task.Assignee.Agent ?? LastAgent ?? "Choose";
+
+    protected override void OnParametersSet()
+    {
+        if (Task.Id == _shownId)
+        {
+            // Something arrived while this task is open: mark it as new too (markers are only ever added while open).
+            _newCommentIds.UnionWith(Task.Comments.Where(c => c.IsNew).Select(c => c.Id));
+            _newFieldIds.UnionWith(Task.Fields.Where(f => f.IsNew).Select(f => f.Id));
+            return;
+        }
+        // New task opened: remember what was unread at that moment so markers survive MarkSeen.
+        _shownId = Task.Id;
+        _newCommentIds = Task.Comments.Where(c => c.IsNew).Select(c => c.Id).ToHashSet();
+        _newFieldIds = Task.Fields.Where(f => f.IsNew).Select(f => f.Id).ToHashSet();
+        _editDesc = false; _fieldId = -1; _confirmDelete = false; _newSub = ""; _reply = "";
+        _titleBase = _dueBase = _descBase = null; _titleStash = null; _titleDraft = null; _dueStash = null; _descConflict = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusAfterRender is { } sel)
+        {
+            _focusAfterRender = null;
+            await JS.InvokeVoidAsync("doiq.focus", sel);
+        }
+    }
+
+    /// <summary>Called by the board's keyboard handler: "c", "i" or "s".</summary>
+    public async Task HandleKey(string key)
+    {
+        switch (key)
+        {
+            case "c": await JS.InvokeVoidAsync("doiq.focus", "#reply"); break;
+            case "s": await JS.InvokeVoidAsync("doiq.focus", "#st-new"); break;
+            case "i": StartField(null); break;
+        }
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Runs one write. A failure becomes a notice (never an unhandled exception), the inputs are redrawn from the server's
+    /// values and the board reloads. True when the write went through.
+    /// </summary>
+    private async Task<bool> Save(Func<Task> action, Action<Exception>? onFail = null)
+    {
+        var err = await Notices.TryAsync(action);
+        if (err is not null)
+        {
+            _rev++;
+            onFail?.Invoke(err);
+        }
+        await OnChanged.InvokeAsync();
+        return err is null;
+    }
+
+    private Task SaveTitle(ChangeEventArgs e)
+    {
+        var v = e.Value?.ToString() ?? "";
+        _titleDraft = null;
+        if (string.IsNullOrWhiteSpace(v)) { _rev++; return System.Threading.Tasks.Task.CompletedTask; }   // an empty title is not saved: show the old one again
+        var basis = _titleBase;
+        _titleBase = null;
+        return Save(() => Api.SetTitleAsync(Task.Id, v, basis), err => { if (err is TaskConflictException) _titleStash = v; });
+    }
+
+    private async Task ApplyTitleStash()
+    {
+        var v = _titleStash!;
+        _titleStash = null;
+        await Save(() => Api.SetTitleAsync(Task.Id, v), err => { if (err is TaskConflictException) _titleStash = v; });
+    }
+
+    private Task SaveDue(ChangeEventArgs e)
+    {
+        DateOnly? d = DateOnly.TryParse(e.Value?.ToString(), out var parsed) ? parsed : null;
+        var basis = _dueBase;
+        _dueBase = null;
+        return Save(() => Api.SetDueAsync(Task.Id, d, basis), err => { if (err is TaskConflictException) _dueStash = new DueStash(d); });
+    }
+
+    private async Task ApplyDueStash()
+    {
+        var d = _dueStash!.Value;
+        _dueStash = null;
+        await Save(() => Api.SetDueAsync(Task.Id, d), err => { if (err is TaskConflictException) _dueStash = new DueStash(d); });
+    }
+
+    private void StartEditDesc() { _descDraft = Task.Description; _descBase = Task.Version; _descConflict = false; _editDesc = true; _focusAfterRender = "#desc-edit"; }
+
+    private async Task SaveDesc()
+    {
+        var draft = _descDraft;
+        var basis = _descBase;
+        _editDesc = false;
+        // A lost conflict puts the editor back with the user's text; the server's current text is offered next to it.
+        await Save(() => Api.SetDescriptionAsync(Task.Id, draft, basis), err =>
+        {
+            _editDesc = true;
+            _descDraft = draft;
+            _descConflict = err is TaskConflictException;
+            if (_descConflict) _descBase = null;   // the next save is made against whatever the task is by then
+            _focusAfterRender = "#desc-edit";
+        });
+    }
+
+    private Task ToggleSub(SubtaskVm s, ChangeEventArgs e) => Save(() => Api.SetSubtaskDoneAsync(Task.Id, s.Id, e.Value is true));
+
+    private async Task SubKey(KeyboardEventArgs e)
+    {
+        if (e.Key != "Enter" || string.IsNullOrWhiteSpace(_newSub)) return;
+        var title = _newSub;
+        _newSub = "";
+        await Save(() => Api.AddSubtaskAsync(Task.Id, title), _ => { if (_newSub.Length == 0) _newSub = title; });
+        _focusAfterRender = "#st-new";
+    }
+
+    private void StartField(InfoFieldVm? f)
+    {
+        _fieldId = f?.Id ?? 0;
+        _fName = f?.Name ?? "";
+        _fBody = f?.Body ?? "";
+        _focusAfterRender = "#field-name";
+    }
+
+    private async Task SaveField()
+    {
+        if (string.IsNullOrWhiteSpace(_fName)) return;
+        var id = _fieldId;
+        _fieldId = -1;
+        await Save(() => id == 0 ? Api.AddFieldAsync(Task.Id, _fName, _fBody) : Api.UpdateFieldAsync(Task.Id, id, _fName, _fBody),
+            _ => _fieldId = id);   // the form still holds the user's text
+    }
+
+    private RenderFragment FieldForm => @<div class="sec">
+        <label class="sr" for="field-name">Field name</label>
+        <input id="field-name" class="field" type="text" placeholder="Field name" @bind="_fName" @bind:event="oninput" />
+        <label class="sr" for="field-body">Field value (markdown)</label>
+        <textarea id="field-body" class="field" rows="4" placeholder="Value. Markdown works." @bind="_fBody" @bind:event="oninput"></textarea>
+        <div class="form-actions">
+            <button type="button" class="btn btn-primary btn-sm" @onclick="SaveField">Save</button>
+            <button type="button" class="btn btn-sm" @onclick="() => _fieldId = -1">Cancel</button>
+        </div>
+    </div>;
+
+    private async Task ReplyKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && (e.CtrlKey || e.MetaKey)) await SendReply();
+    }
+
+    private async Task SendReply()
+    {
+        if (string.IsNullOrWhiteSpace(_reply)) return;
+        var body = _reply;
+        _reply = "";
+        await Save(() => Api.AddCommentAsync(Task.Id, body), _ => _reply = string.IsNullOrEmpty(_reply) ? body : body + "\n\n" + _reply);
+    }
+
+    private async Task Delete()
+    {
+        _confirmDelete = false;
+        var err = await Notices.TryAsync(() => Api.DeleteTaskAsync(Task.Id));
+        if (err is null) await OnDeleted.InvokeAsync();
+        else await OnChanged.InvokeAsync();
+    }
+}

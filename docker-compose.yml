@@ -1,0 +1,19 @@
+services:
+  doiq:
+    build: .
+    image: doiq:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  # Nightly SQLite-safe backup into ./data/backups (see deploy/backup.sh). Remove if you back up elsewhere.
+  doiq-backup:
+    build: ./deploy
+    user: "1654:1654"        # same uid/gid as the app user in the aspnet image, so the db's WAL files keep the right owner
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    depends_on:
+      - doiq

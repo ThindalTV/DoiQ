@@ -1,0 +1,308 @@
+@page "/board/{BoardId:int}/archive"
+@implements IDisposable
+@inject IDoiQApiClient Api
+@inject NavigationManager Nav
+@inject NoticeService Notices
+@inject BoardHubClient Hub
+
+<PageTitle>@(BoardName is { } bn ? $"Archived · {bn} · DoiQ" : "Archived · DoiQ")</PageTitle>
+
+<div class="app">
+    <header class="topbar">
+        <div class="brand">
+            <Icon Name="logo" Size="22" />
+            <h1>DoiQ</h1>
+        </div>
+        <a class="btn" href="board/@BoardId">Back to @(BoardName ?? "the board")</a>
+        <div class="grow"></div>
+        <a class="btn" href="settings">Settings</a>
+    </header>
+
+    <main class="archive" aria-labelledby="archive-h">
+        <div class="archive-head">
+            <h2 id="archive-h">Archived tasks</h2>
+            <span class="muted">Done tasks that left the board after the archive window, most recently done first. Open one to read it or move it out of Done.</span>
+        </div>
+
+        <form class="search" role="search" @onsubmit="SearchNow" @onsubmit:preventDefault>
+            <Icon Name="search" Size="16" />
+            <label for="archive-search" class="sr">Search the archive</label>
+            <input type="search" id="archive-search" placeholder="Search titles, descriptions, fields and comments" value="@_draft" @oninput="Typed" />
+        </form>
+
+        @if (_items.Count == 0 && _loading)
+        {
+            <p class="archive-empty" role="status">Loading…</p>
+        }
+        else if (_items.Count == 0 && _loaded)
+        {
+            <p class="archive-empty" role="status">@(_query is null ? "Nothing is archived on this board." : $"No archived task matches “{_query}”.")</p>
+        }
+        else
+        {
+            <ArchivedList Tasks="_items" OnOpen="Open" />
+        }
+
+        @if (_next is not null)
+        {
+            <button type="button" class="btn archive-more" disabled="@_loading" @onclick="LoadMore">@(_loading ? "Loading…" : "Load more")</button>
+        }
+    </main>
+</div>
+
+@if (OpenTask is { } open)
+{
+    <TaskDrawer Task="open" LastAgent="@_lastAgent" Revision="_rev"
+                OnClose="() => _openId = null" OnChanged="AfterWrite" OnDeleted="AfterDelete"
+                OnMoveTo="lane => MoveTo(open.Id, lane)" OnAssign="a => Assign(open.Id, a)"
+                OnChooseAgent="() => _pickerFor = open.Id" OnGive="() => Give(open.Id)" OnTake="() => Assign(open.Id, AssigneeVm.UserVm)" />
+}
+
+@if (_pickerFor is not null)
+{
+    <AgentPicker Agents="Api.Agents" LastAgent="@_lastAgent" OnPick="PickAgent" OnClose="() => _pickerFor = null" />
+}
+
+@code {
+    [Parameter] public int BoardId { get; set; }
+
+    /// <summary>?q= opens the archive already searched (the board's "Archived" search group links here).</summary>
+    [SupplyParameterFromQuery(Name = "q")] public string? Q { get; set; }
+
+    /// <summary>How long typing pauses before the search runs.</summary>
+    public static TimeSpan SearchDelay { get; set; } = TimeSpan.FromMilliseconds(300);
+
+    private readonly CancellationTokenSource _life = new();   // cancelled when the page goes away
+    private readonly List<ArchivedTaskVm> _items = [];
+    private string? _query, _next, _lastAgent;
+    private string _draft = "";
+    private bool _loading, _loaded;
+    private int _ticket, _rev, _shownBoardId;
+    private int? _openId, _pickerFor;
+    private CancellationTokenSource? _typing;
+
+    private string? BoardName => Api.Boards.FirstOrDefault(b => b.Id == BoardId)?.Name;
+
+    private TaskVm? OpenTask => _openId is int id ? Api.Find(id) : null;
+
+    protected override void OnInitialized() => Api.Changed += OnRemoteChanged;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var ct = _life.Token;
+        var query = string.IsNullOrWhiteSpace(Q) ? null : Q.Trim();
+        if (BoardId == _shownBoardId && query == _query && _loaded) return;
+        try
+        {
+            if (BoardId != _shownBoardId)
+            {
+                _shownBoardId = BoardId;
+                _openId = _pickerFor = null;
+                await Api.GetBoardsAsync();
+                if (Api.Boards.All(b => b.Id != BoardId))
+                {
+                    Notices.Show(NoticeLevel.Warning, "That board does not exist (any more). Showing another one.");
+                    Nav.NavigateTo("", replace: true);
+                    return;
+                }
+                await Api.SelectBoardAsync(BoardId);
+                await Api.GetBoard(ct);   // who "You" is, the agents, and live updates for this board
+                _lastAgent = Api.Agents.FirstOrDefault();
+                _ = Hub.StartAsync();
+            }
+            _draft = query ?? "";
+            await Search(query, ct);
+        }
+        catch (ApiException e)
+        {
+            Notices.Show(NoticeLevel.Error, e.IsOffline ? "Could not reach the server, so the archive could not be loaded." : e.Message, "Retry", () => InvokeAsync(Retry));
+        }
+        catch (OperationCanceledException) { /* left the page */ }
+    }
+
+    private Task Retry()
+    {
+        _shownBoardId = 0;
+        _loaded = false;
+        return OnParametersSetAsync();
+    }
+
+    public void Dispose()
+    {
+        Api.Changed -= OnRemoteChanged;
+        _typing?.Cancel();
+        _typing?.Dispose();
+        _life.Cancel();
+        _life.Dispose();
+    }
+
+    // ---- paging and search ----
+
+    /// <summary>Starts over from the newest archived task (null = no search).</summary>
+    private async Task Search(string? query, CancellationToken ct)
+    {
+        _query = query;
+        _items.Clear();
+        _next = null;
+        _loaded = false;
+        await Page(null, ct);
+    }
+
+    private async Task Page(string? cursor, CancellationToken ct)
+    {
+        var ticket = ++_ticket;   // a newer search supersedes this page
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            var page = await Api.GetArchivePage(BoardId, _query, cursor, ct);
+            if (ticket != _ticket) return;
+            // A task can move between pages while paging (another tab reopened one): never list it twice.
+            _items.AddRange(page.Tasks.Where(t => _items.All(i => i.Id != t.Id)));
+            _next = page.NextCursor;
+            _loaded = true;
+        }
+        catch (ApiException e) when (ticket == _ticket)
+        {
+            Notices.Show(NoticeLevel.Error, e.IsOffline ? "Could not reach the server." : e.Message, "Retry", () => InvokeAsync(() => Page(cursor, _life.Token)));
+        }
+        finally
+        {
+            if (ticket == _ticket) _loading = false;
+        }
+    }
+
+    private Task LoadMore() => _next is { } cursor ? Page(cursor, _life.Token) : Task.CompletedTask;
+
+    private async Task Typed(ChangeEventArgs e)
+    {
+        _draft = e.Value?.ToString() ?? "";
+        _typing?.Cancel();
+        _typing?.Dispose();
+        var typing = _typing = CancellationTokenSource.CreateLinkedTokenSource(_life.Token);
+        try
+        {
+            await Task.Delay(SearchDelay, typing.Token);
+            await RunSearch(typing.Token);
+        }
+        catch (OperationCanceledException) { /* typed on, or left the page */ }
+    }
+
+    private Task SearchNow()
+    {
+        _typing?.Cancel();
+        return RunSearch(_life.Token);
+    }
+
+    private Task RunSearch(CancellationToken ct)
+    {
+        var query = string.IsNullOrWhiteSpace(_draft) ? null : _draft.Trim();
+        return query == _query && _loaded ? Task.CompletedTask : Search(query, ct);
+    }
+
+    // ---- the drawer ----
+
+    private async Task Open(int id)
+    {
+        _openId = id;
+        TaskVm? task;
+        try { task = await Api.LoadTask(id, _life.Token); }
+        catch (ApiException e)
+        {
+            _openId = null;
+            Notices.ShowFailure(e);
+            return;
+        }
+        if (task is null)
+        {
+            _openId = null;
+            _items.RemoveAll(t => t.Id == id);
+            Notices.Show(NoticeLevel.Warning, "That task was deleted.");
+            return;
+        }
+        // Render it with its unread markers first, then mark it seen.
+        StateHasChanged();
+        await Task.Yield();
+        try { await Api.MarkSeenAsync(id); } catch (ApiException) { /* stays unread */ }
+    }
+
+    /// <summary>After a write: the open task is read again and its line follows (it leaves the list once it is no longer archived).</summary>
+    private Task AfterWrite() => Reread(_life.Token);
+
+    private async Task Reread(CancellationToken ct)
+    {
+        if (_openId is int id)
+        {
+            try { await Api.LoadTask(id, ct); }
+            catch (ApiException) { /* the drawer shows what it has */ }
+            catch (OperationCanceledException) { return; }
+        }
+        SyncRows();
+    }
+
+    /// <summary>One write from the drawer: a failure becomes a notice and the drawer redraws from the server's values.</summary>
+    private async Task Do(Func<Task> write, CancellationToken ct)
+    {
+        if (await Notices.TryAsync(write) is not null) _rev++;
+        await Reread(ct);
+    }
+
+    private async Task MoveTo(int id, BoardLane lane)
+    {
+        var title = Api.Find(id)?.Title ?? "The task";
+        if (await Notices.TryAsync(() => Api.MoveAsync(id, lane, null)) is not null)
+        {
+            _rev++;
+            await Reread(_life.Token);   // a 409 already reloaded it; show the server's version
+            return;
+        }
+        SyncRows();
+        if (lane != BoardLane.Done)
+            Notices.Show(NoticeLevel.Info, $"“{title}” is back on the board, in {lane}.", "Show the board", () => { Nav.NavigateTo($"board/{BoardId}"); return Task.CompletedTask; });
+    }
+
+    private Task Assign(int id, AssigneeVm who)
+    {
+        if (who.Kind == AssigneeKind.Agent && who.Agent is not null) _lastAgent = who.Agent;
+        return Do(() => Api.AssignAsync(id, who), _life.Token);
+    }
+
+    private Task Give(int id)
+    {
+        if (_lastAgent is null)
+        {
+            _pickerFor = id;
+            return Task.CompletedTask;
+        }
+        return Assign(id, AssigneeVm.ForAgent(_lastAgent));
+    }
+
+    private async Task PickAgent(AssigneeVm who)
+    {
+        if (_pickerFor is int id) await Assign(id, who);
+        _pickerFor = null;
+    }
+
+    private void AfterDelete()
+    {
+        if (_openId is int id) _items.RemoveAll(t => t.Id == id);
+        _openId = null;
+    }
+
+    /// <summary>Lines follow the tasks this client holds: a task no longer archived (reopened here or elsewhere) leaves the list.</summary>
+    private void SyncRows()
+    {
+        for (var i = _items.Count - 1; i >= 0; i--)
+        {
+            if (Api.Find(_items[i].Id) is not { } t) continue;
+            if (!t.Archived) _items.RemoveAt(i);
+            else _items[i] = new ArchivedTaskVm(t.Id, t.Title, t.DoneAt, t.Assignee, t.CommentCount, t.FieldCount);
+        }
+    }
+
+    private void OnRemoteChanged() => _ = InvokeAsync(() =>
+    {
+        SyncRows();
+        StateHasChanged();
+    });
+}

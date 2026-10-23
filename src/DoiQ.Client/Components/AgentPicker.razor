@@ -1,0 +1,24 @@
+<div class="scrim top" @onclick="OnClose"></div>
+<div class="dialog small" role="dialog" aria-labelledby="ap-title">
+    <h2 id="ap-title">Give to</h2>
+    <div class="picker-list">
+        @for (var i = 0; i < Agents.Count; i++)
+        {
+            var name = Agents[i];
+            <button type="button" class="@(name == LastAgent ? "sel" : "")" @onclick="() => OnPick.InvokeAsync(AssigneeVm.ForAgent(name))">
+                <Avatar Assignee="AssigneeVm.ForAgent(name)" />@name
+            </button>
+        }
+        <button type="button" @onclick="() => OnPick.InvokeAsync(AssigneeVm.AnyAgent)">
+            <Avatar Assignee="AssigneeVm.AnyAgent" />Any agent
+        </button>
+    </div>
+    <button type="button" class="btn btn-quiet" @onclick="OnClose">Cancel</button>
+</div>
+
+@code {
+    [Parameter] public IReadOnlyList<string> Agents { get; set; } = [];
+    [Parameter] public string? LastAgent { get; set; }
+    [Parameter] public EventCallback<AssigneeVm> OnPick { get; set; }
+    [Parameter] public EventCallback OnClose { get; set; }
+}

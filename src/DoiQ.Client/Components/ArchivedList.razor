@@ -1,0 +1,29 @@
+<ul class="archive-list">
+    @foreach (var t in Tasks)
+    {
+        var id = t.Id;
+        <li @key="t.Id">
+            <button type="button" class="archive-item" @onclick="() => OnOpen.InvokeAsync(id)">
+                <span class="t">@t.Title</span>
+                <span class="meta">
+                    <span class="done">@(t.DoneAt is { } d ? "Done " + Fmt.Day(d) : "Done")</span>
+                    <span class="who"><Avatar Assignee="t.Assignee" Size="av-sm" />@t.Assignee.Label</span>
+                    @if (t.FieldCount > 0)
+                    {
+                        <span><Icon Name="fields" /><span class="sr">Info fields</span>@t.FieldCount</span>
+                    }
+                    @if (t.CommentCount > 0)
+                    {
+                        <span><Icon Name="comment" /><span class="sr">Comments</span>@t.CommentCount</span>
+                    }
+                </span>
+            </button>
+        </li>
+    }
+</ul>
+
+@code {
+    /// <summary>Archived tasks, already in the order to show (the server's: most recently done first).</summary>
+    [Parameter, EditorRequired] public IReadOnlyList<ArchivedTaskVm> Tasks { get; set; } = [];
+    [Parameter] public EventCallback<int> OnOpen { get; set; }
+}

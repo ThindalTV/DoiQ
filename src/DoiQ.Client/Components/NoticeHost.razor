@@ -1,0 +1,31 @@
+@implements IDisposable
+@inject NoticeService Notices
+
+<div class="notices">
+    @foreach (var n in Notices.Items)
+    {
+        var notice = n;
+        <div class="notice notice-@notice.Level.ToString().ToLowerInvariant()" role="@(notice.Level == NoticeLevel.Info ? "status" : "alert")" @key="notice.Id">
+            <span class="notice-text">@notice.Text</span>
+            @if (notice.Action is not null && notice.ActionLabel is not null)
+            {
+                <button type="button" class="btn btn-sm" @onclick="() => Run(notice)">@notice.ActionLabel</button>
+            }
+            <button type="button" class="icon-btn" aria-label="Dismiss" @onclick="() => Notices.Dismiss(notice.Id)"><Icon Name="close" Size="14" /></button>
+        </div>
+    }
+</div>
+
+@code {
+    protected override void OnInitialized() => Notices.Changed += OnChanged;
+
+    private void OnChanged() => _ = InvokeAsync(StateHasChanged);
+
+    private async Task Run(Notice n)
+    {
+        Notices.Dismiss(n.Id);
+        if (n.Action is not null) await Notices.TryAsync(n.Action);
+    }
+
+    public void Dispose() => Notices.Changed -= OnChanged;
+}

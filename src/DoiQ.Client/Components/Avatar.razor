@@ -1,0 +1,22 @@
+@switch (Assignee.Kind)
+{
+    case AssigneeKind.User:
+        <span class="av av-user @Cls" aria-hidden="true">@Fmt.HumanInitial</span>
+        break;
+    case AssigneeKind.Agent:
+        <span class="av av-agent @Cls" aria-hidden="true">@AssigneeVm.Initials(Assignee.Agent ?? "?")</span>
+        break;
+    case AssigneeKind.Pool:
+        <span class="av av-pool @Cls" aria-hidden="true">*</span>
+        break;
+    default:
+        <span class="av av-none @Cls" aria-hidden="true"></span>
+        break;
+}
+
+@code {
+    [Parameter, EditorRequired] public AssigneeVm Assignee { get; set; } = AssigneeVm.Unassigned;
+    [Parameter] public string Size { get; set; } = "";
+
+    private string Cls => Size;
+}

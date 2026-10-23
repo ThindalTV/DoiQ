@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="630" height="180" role="img" aria-label="DoiQ">
+  <title>DoiQ</title>
+  <text x="0" y="88" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="84" font-weight="700" letter-spacing="-2" fill="#1E1B4B">Doi</text>
+  <g transform="translate(236 0)">
+    <path d="M93.8 72.3 A36 36 0 1 0 72.3 93.8" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
+    <path d="M76 76 L103 103" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
+    <path d="M43 60 L55 72 L77 47" fill="none" stroke="#14B8A6" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="99" cy="21" r="8" fill="#F59E0B"/>
+  </g>
+</svg>

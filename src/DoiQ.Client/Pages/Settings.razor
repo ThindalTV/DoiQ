@@ -1,0 +1,374 @@
+@page "/settings"
+@inject IDoiQApiClient Api
+@inject NoticeService Notices
+@inject AuthState Auth
+@inject NavigationManager Nav
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+
+<PageTitle>Settings · DoiQ</PageTitle>
+
+<div class="app">
+    <header class="topbar">
+        <div class="brand"><Icon Name="logo" Size="22" /><h1>DoiQ</h1></div>
+        <h2 class="page-title">Settings</h2>
+        <div class="grow"></div>
+        <a class="btn" href="">Back to board <kbd>Esc</kbd></a>
+        <button type="button" class="btn" @onclick="SignOut">Sign out</button>
+    </header>
+
+    <main class="settings">
+        @if (_secrets is { } s)
+        {
+            <SecretPanel Title="@s.Title" Items="s.Items" McpUrl="@McpUrl" OnDismiss="() => _secrets = null" />
+        }
+
+        <section class="card-section" aria-labelledby="boards-h" id="boards">
+            <div class="sec-head"><h3 id="boards-h">Boards</h3></div>
+            <p class="muted board-note">Boards are fully separate. A task stays on the board it was made on. A board can only be deleted once everything on it is Done.</p>
+
+            @if (_boards is null)
+            {
+                <p class="muted">Loading…</p>
+            }
+            else
+            {
+                @foreach (var b in _boards)
+                {
+                    var board = b;
+                    var block = DeleteBlock(board);
+                    <article class="agent-card board-row" @key="board.Id">
+                        @if (_renameId == board.Id)
+                        {
+                            <form class="inline" @onsubmit="() => SaveRename(board)">
+                                <label class="sr" for="rename-@board.Id">Board name</label>
+                                <input id="rename-@board.Id" class="field" type="text" maxlength="60" @bind="_renameName" @bind:event="oninput" />
+                                <button type="submit" class="btn btn-primary btn-sm" disabled="@_busy">Save</button>
+                                <button type="button" class="btn btn-sm" @onclick="() => _renameId = null">Cancel</button>
+                            </form>
+                        }
+                        else
+                        {
+                            <header>
+                                <h4>@board.Name</h4>
+                                <span class="board-counts" role="status">@board.OpenTasks open · @board.DoneTasks done</span>
+                            </header>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-sm" @onclick="() => StartRename(board)">Rename</button>
+                                <button type="button" id="board-del-@board.Id" class="btn btn-sm btn-danger" aria-disabled="@(block is not null ? "true" : null)"
+                                        aria-describedby="@(block is not null ? $"board-del-why-{board.Id}" : null)" @onclick="() => AskDelete(board)">Delete</button>
+                            </div>
+                            @if (block is not null)
+                            {
+                                <p id="board-del-why-@board.Id" class="muted board-why">@block</p>
+                            }
+                        }
+                    </article>
+                }
+            }
+
+            <form class="inline board-add" @onsubmit="AddBoard">
+                <label class="sr" for="new-board">New board name</label>
+                <input id="new-board" class="field" type="text" maxlength="60" placeholder="New board name" @bind="_newBoard" @bind:event="oninput" />
+                <button type="submit" class="btn btn-primary btn-sm" disabled="@(_busy || string.IsNullOrWhiteSpace(_newBoard))"><Icon Name="plus" Size="10" />Add board</button>
+            </form>
+        </section>
+
+        <section class="card-section" aria-labelledby="agents-h">
+            <div class="sec-head">
+                <h3 id="agents-h">Agents</h3>
+                @if (!_adding)
+                {
+                    <button type="button" class="btn btn-sm right" @onclick="() => { _adding = true; _editId = null; }"><Icon Name="plus" Size="10" Stroke="#e7ddf6" />Add agent</button>
+                }
+            </div>
+
+            @if (_error is not null) { <p class="form-error" role="alert">@_error</p> }
+
+            @if (_adding)
+            {
+                <div class="agent-card"><h4>New agent</h4><AgentForm Busy="_busy" OnSave="Create" OnCancel="() => _adding = false" /></div>
+            }
+
+            @if (_agents is null)
+            {
+                <p class="muted">Loading…</p>
+            }
+            else if (_agents.Count == 0 && !_adding)
+            {
+                <p class="muted">No agents yet.</p>
+            }
+            else
+            {
+                @foreach (var a in _agents)
+                {
+                    var agent = a;
+                    <article class="agent-card @(agent.IsActive ? "" : "is-inactive")" @key="agent.Id">
+                        <header>
+                            <span class="av av-agent av-lg">@agent.Initials</span>
+                            <h4>@agent.Name</h4>
+                            @if (agent.IsTriage) { <span class="badge-new">Triage</span> }
+                            <span class="status @(agent.IsActive ? "on" : "off")">@(agent.IsActive ? "Active" : "Inactive")</span>
+                        </header>
+
+                        @if (_editId == agent.Id)
+                        {
+                            <AgentForm Existing="agent" Busy="_busy" OnSave="m => Update(agent, m)" OnCancel="() => _editId = null" />
+                        }
+                        else
+                        {
+                            <dl class="agent-facts">
+                                <dt>Initials</dt><dd>@agent.Initials</dd>
+                                <dt>Webhook URL</dt><dd>@(agent.WebhookUrl ?? "Not set")@(agent.HasWebhookSecret ? " (secret set)" : "")</dd>
+                                <dt>Notify URL</dt><dd>@(agent.NotifyUrl ?? "Not set")</dd>
+                                <dt>Last seen</dt><dd>@(agent.LastSeenAt is { } seen ? Fmt.Ago(new DateTimeOffset(DateTime.SpecifyKind(seen, DateTimeKind.Utc))) : "Never")</dd>
+                            </dl>
+                            <div class="form-actions">
+                                <button type="button" class="btn btn-sm" @onclick="() => { _editId = agent.Id; _adding = false; }">Edit</button>
+                                @if (_confirmRotate == agent.Id)
+                                {
+                                    <button type="button" class="btn btn-primary btn-sm" @onclick="() => Rotate(agent)">Rotate now, the old key stops working</button>
+                                    <button type="button" class="btn btn-sm" @onclick="() => _confirmRotate = null">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm" @onclick="() => _confirmRotate = agent.Id">Rotate key</button>
+                                }
+                                <button type="button" class="btn btn-sm" @onclick="() => SetActive(agent, !agent.IsActive)">@(agent.IsActive ? "Deactivate" : "Activate")</button>
+                            </div>
+                        }
+                    </article>
+                }
+            }
+        </section>
+
+        <section class="card-section" aria-labelledby="conn-h">
+            <div class="sec-head"><h3 id="conn-h">Connect an agent</h3></div>
+            <dl class="agent-facts">
+                <dt>MCP URL</dt><dd><code>@McpUrl</code></dd>
+                <dt>Auth header</dt><dd><code>X-Api-Key: &lt;agent key&gt;</code> (or <code>Authorization: Bearer &lt;agent key&gt;</code>)</dd>
+            </dl>
+        </section>
+
+        <section class="card-section" aria-labelledby="pw-h">
+            <div class="sec-head"><h3 id="pw-h">Change password</h3></div>
+            <form class="agent-form" @onsubmit="ChangePassword">
+                <div class="form-grid">
+                    <label for="pw-cur">Current password</label>
+                    <input id="pw-cur" class="field" type="password" autocomplete="current-password" @bind="_cur" @bind:event="oninput" />
+                    <label for="pw-new">New password</label>
+                    <input id="pw-new" class="field" type="password" autocomplete="new-password" @bind="_new" @bind:event="oninput" />
+                    <label for="pw-conf">Confirm new password</label>
+                    <input id="pw-conf" class="field" type="password" autocomplete="new-password" @bind="_conf" @bind:event="oninput" />
+                </div>
+                @if (_pwError is not null) { <p class="form-error" role="alert">@_pwError</p> }
+                @if (_pwDone) { <p class="form-ok" role="status">Password changed.</p> }
+                <div class="form-actions"><button type="submit" class="btn btn-primary btn-sm" disabled="@_busy">Change password</button></div>
+            </form>
+        </section>
+    </main>
+</div>
+
+@if (_deleting is { } doomed)
+{
+    <ConfirmDialog Title="Delete this board?" ConfirmText="@($"Delete {doomed.Name}")" Busy="_busy" OnConfirm="ConfirmDelete" OnCancel="CancelDelete">
+        <p>You are about to delete the board <strong>@doomed.Name</strong>. It holds <strong>@(doomed.OpenTasks + doomed.DoneTasks) @((doomed.OpenTasks + doomed.DoneTasks) == 1 ? "task" : "tasks")</strong>, all of them done.</p>
+        <p>The tasks go with it, including their comments, fields, subtasks and history. This cannot be undone.</p>
+    </ConfirmDialog>
+}
+
+@code {
+    private sealed record Secrets(string Title, IReadOnlyList<(string Label, string Value)> Items);
+
+    private IReadOnlyList<AgentAdminDto>? _agents;
+    private Secrets? _secrets;
+    private bool _adding, _busy, _pwDone;
+    private int? _editId, _confirmRotate;
+    private string? _error, _pwError;
+    private string _cur = "", _new = "", _conf = "";
+    private DotNetObjectReference<Settings>? _self;
+
+    private IReadOnlyList<BoardDto>? _boards;
+    private string _newBoard = "", _renameName = "";
+    private int? _renameId, _focusRename;
+    private BoardDto? _deleting;
+
+    private string McpUrl => Nav.BaseUri.TrimEnd('/') + "/mcp";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_focusRename is int rename)
+        {
+            _focusRename = null;
+            await JS.InvokeVoidAsync("doiq.focus", $"#rename-{rename}");
+        }
+        if (firstRender)
+        {
+            _self = DotNetObjectReference.Create(this);
+            await JS.InvokeVoidAsync("doiq.init", _self, "settings");
+            if (Nav.Uri.EndsWith("#boards", StringComparison.Ordinal)) await JS.InvokeVoidAsync("doiq.scrollTo", "#boards");   // "Manage boards" link
+        }
+    }
+
+    // Esc closes the delete dialog if one is open, otherwise leaves the settings screen (the shared key handler routes it here).
+    [JSInvokable]
+    public async Task OnKey(string key, bool shift, bool alt)
+    {
+        if (key != "Escape") return;
+        if (_deleting is not null && !_busy) await InvokeAsync(CancelDelete);
+        else if (_deleting is null) Nav.NavigateTo("");
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try { await JS.InvokeVoidAsync("doiq.dispose", "settings"); } catch { /* page already gone */ }
+        _self?.Dispose();
+    }
+
+    private async Task Load()
+    {
+        try { _agents = await Api.GetAgentsAsync(); }
+        catch (ApiException e) { _error = e.Message; _agents ??= []; }
+        await LoadBoards();
+    }
+
+    // ---- boards ----
+
+    private async Task LoadBoards()
+    {
+        try { _boards = await Api.GetBoardsAsync(); }
+        catch (ApiException e) { Notices.ShowFailure(e); _boards ??= []; }
+    }
+
+    /// <summary>Why this board cannot be deleted right now (the same rule the server enforces), or null when it can.</summary>
+    private string? DeleteBlock(BoardDto b)
+    {
+        if (_boards is { Count: <= 1 }) return "This is the last board, and the last board cannot be deleted.";
+        if (b.OpenTasks > 0) return $"{b.OpenTasks} {(b.OpenTasks == 1 ? "task is" : "tasks are")} not done. Finish or delete {(b.OpenTasks == 1 ? "it" : "them")} first.";
+        return null;
+    }
+
+    private async Task Act(Func<Task> write)
+    {
+        _busy = true;
+        try { await Notices.TryAsync(write); }   // a refusal (name taken, stale version, board not empty) becomes a notice
+        finally { _busy = false; }
+        await LoadBoards();   // always show what the server holds now
+    }
+
+    private Task AddBoard() => Act(async () =>
+    {
+        var name = _newBoard;
+        var b = await Api.CreateBoardAsync(name);
+        _newBoard = "";
+        Notices.Info($"Board “{b.Name}” added.");
+    });
+
+    private void StartRename(BoardDto b)
+    {
+        _renameId = _focusRename = b.Id;
+        _renameName = b.Name;
+    }
+
+    private Task SaveRename(BoardDto b) => Act(async () =>
+    {
+        await Api.RenameBoardAsync(b.Id, _renameName, b.Version);
+        _renameId = null;
+    });
+
+    private void AskDelete(BoardDto b)
+    {
+        if (DeleteBlock(b) is not null) return;   // the reason is on screen next to the button
+        _deleting = b;
+    }
+
+    private async Task CancelDelete()
+    {
+        var id = _deleting?.Id;
+        _deleting = null;
+        StateHasChanged();
+        if (id is int i) await JS.InvokeVoidAsync("doiq.focus", $"#board-del-{i}");
+    }
+
+    private async Task ConfirmDelete()
+    {
+        if (_deleting is not { } b) return;
+        await Act(async () =>
+        {
+            await Api.DeleteBoardAsync(b.Id);
+            Notices.Info($"Board “{b.Name}” deleted.");
+        });
+        _deleting = null;
+    }
+
+    private async Task Run(Func<Task> action)
+    {
+        _error = null;
+        _busy = true;
+        try { await action(); }
+        catch (ApiException e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task Create(AgentForm.AgentFormModel m) => Run(async () =>
+    {
+        var r = await Api.CreateAgentAsync(new CreateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl)));
+        var items = new List<(string, string)> { ("API key", r.ApiKey) };
+        if (!string.IsNullOrEmpty(r.WebhookSecret)) items.Add(("Webhook secret", r.WebhookSecret));
+        _secrets = new Secrets($"{r.Agent.Name} was added", items);
+        _adding = false;
+        await Load();
+    });
+
+    private Task Update(AgentAdminDto agent, AgentForm.AgentFormModel m) => Run(async () =>
+    {
+        await Api.UpdateAgentAsync(agent.Id, new UpdateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl)));
+        if (!string.IsNullOrWhiteSpace(m.WebhookSecret))
+            _secrets = new Secrets($"New webhook secret for {m.Name.Trim()}", [("Webhook secret", m.WebhookSecret.Trim())]);
+        _editId = null;
+        await Load();
+    });
+
+    private Task Rotate(AgentAdminDto agent) => Run(async () =>
+    {
+        var r = await Api.RotateAgentKeyAsync(agent.Id);
+        _secrets = new Secrets($"New API key for {agent.Name}", [("API key", r.ApiKey)]);
+        _confirmRotate = null;
+    });
+
+    private Task SetActive(AgentAdminDto agent, bool active) => Run(async () =>
+    {
+        await Api.SetAgentActiveAsync(agent.Id, active);
+        await Load();
+    });
+
+    private async Task ChangePassword()
+    {
+        _pwError = null;
+        _pwDone = false;
+        if (_new.Length < 8) { _pwError = "Use at least 8 characters."; return; }
+        if (_new != _conf) { _pwError = "The two new passwords do not match."; return; }
+        _busy = true;
+        try
+        {
+            await Api.ChangePasswordAsync(_cur, _new);
+            _cur = _new = _conf = "";
+            _pwDone = true;
+        }
+        catch (ApiException e) { _pwError = e.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task SignOut()
+    {
+        try { await Api.LogoutAsync(); } catch (ApiException) { /* signed out locally either way */ }
+        Auth.Set(AuthStatus.SignedOut);
+    }
+
+    private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+}

@@ -1,0 +1,41 @@
+<div class="scrim top" @onclick="OnClose"></div>
+<div class="dialog" role="dialog" aria-labelledby="sc-title">
+    <div class="dialog-head">
+        <div>
+            <span class="eyebrow">DOIQ</span>
+            <h1 id="sc-title">Keyboard shortcuts</h1>
+        </div>
+        <button type="button" class="close" aria-label="Close (Esc)" @onclick="OnClose"><kbd>Esc</kbd><Icon Name="close" /></button>
+    </div>
+
+    <div class="sc-grid">
+        @foreach (var (name, items) in Groups)
+        {
+            <section>
+                <h2>@name</h2>
+                <dl>
+                    @foreach (var (keys, does) in items)
+                    {
+                        <dt><kbd>@keys</kbd></dt>
+                        <dd>@does</dd>
+                    }
+                </dl>
+            </section>
+        }
+    </div>
+    <p class="note">Shortcuts are off while you type in a field. Esc leaves the field first.</p>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnClose { get; set; }
+
+    private static readonly (string, (string, string)[])[] Groups =
+    [
+        ("Move around", [("J / K", "Next / previous card"), ("H / L", "Previous / next lane"), ("Enter", "Open the focused task"), ("Esc", "Close the drawer")]),
+        ("Board", [("N", "New task in New"), ("/", "Search"), ("F", "Toggle Needs me"), ("Shift A", "Archived tasks"), (",", "Settings")]),
+        ("Boards", [("B", "Open the board menu (Esc closes)"), ("Shift H / L", "Previous / next board"), (",", "Settings, where boards are managed")]),
+        ("Focused task", [("1 – 4", "Move to New, Waiting, Doing, Done"), ("Alt ↑ / ↓", "Move up / down in its lane (Lane order sort only)"), ("Alt Home / End", "Top / bottom of its lane (Lane order sort only)"),
+            ("G", "Give to the last agent used"), ("Shift G", "Choose an agent, or Any agent"), ("T", "Take it")]),
+        ("In the drawer", [("C", "Jump to the discussion"), ("I", "Add an info field"), ("S", "Add a subtask"), ("Space", "Tick the focused subtask"), ("Ctrl Enter", "Send comment")]),
+    ];
+}
