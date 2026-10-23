@@ -20,6 +20,46 @@ The login cookie is signed with ASP.NET Data Protection keys, stored in a `keys`
 
 Health check: `GET /health` returns `{"status":"ok"}` (also used by the image's `HEALTHCHECK`).
 
+### Published images
+
+Prebuilt images for `linux/amd64` and `linux/arm64` are on GitHub Container Registry, so a host doesn't need the source code:
+
+| Tag | What it is |
+|---|---|
+| `latest`, `1.2.3`, `1.2` | The newest release (a `v1.2.3` git tag) |
+| `beta` | The newest build: every push to `main`, any pre-release tag such as `v1.3.0-beta.1`, or a manual run of the workflow. Always at least as new as `latest`. |
+| `1.3.0-beta.1` | That pre-release |
+| `sha-<commit>` | One specific build of `main` |
+
+A compose file that pulls them instead of building (swap `latest` for `beta` to follow the newest build):
+
+```yaml
+services:
+  doiq:
+    image: ghcr.io/thindaltv/doiq:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - doiq-data:/data
+    restart: unless-stopped
+
+  doiq-backup:
+    image: ghcr.io/thindaltv/doiq-backup:latest
+    user: "1654:1654"
+    volumes:
+      - doiq-data:/data
+    restart: unless-stopped
+    depends_on:
+      - doiq
+
+volumes:
+  doiq-data:
+```
+
+A named volume like `doiq-data` takes its owner from the image, so no `chown` is needed; use a host path such as `./data:/data` instead if you want the files in a folder you can browse (then `chown 1654:1654` it once, as above). Update with `docker compose pull && docker compose up -d`.
+
+The images are built by `.github/workflows/docker.yml` after the tests pass. To publish a beta from any branch, run the workflow from the repository's Actions tab ("Run workflow"). To release, push a version tag, e.g. `git tag v0.1.0 && git push origin v0.1.0`.
+
 ## First-run setup
 
 Open the site in a browser. While no password exists the app shows first-run setup (`GET /api/setup/status` returns `{"needsSetup":true}`); choose the user's password there. Everything else is configured in the app and stored in the database, so it survives rebuilds as long as `./data` does.

@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# The build stage runs on the builder's own platform: the published output is framework-dependent IL plus the
+# WASM client and SQLite's native libraries for every platform, so one build serves amd64 and arm64 images.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # Restore first so the layer is cached until a project file changes.
