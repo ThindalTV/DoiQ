@@ -228,10 +228,12 @@ select { height: 36px; }
 .card-meta .overdue { color: var(--lilac); font-weight: 600; }
 .card-meta .unassigned { display: inline-flex; align-items: center; gap: 6px; }
 
-.drop-line { display: flex; align-items: center; gap: 8px; margin: -2px 0; }
+/* Takes no space (zero height, margins cancel the extra flex gap) and lets drag events through: a line that pushed
+   cards aside would move the card out from under the pointer, retarget the drop and make the board flicker. */
+.drop-line { display: flex; align-items: center; gap: 8px; height: 0; margin: -4px 0; pointer-events: none; }
 .drop-line .ring { width: 6px; height: 6px; border: 2px solid var(--lilac); border-radius: 50%; }
 .drop-line .rule { flex: 1; height: 2px; background: var(--lilac); }
-.drop-line .label { font-size: 11px; color: var(--lilac); }
+.drop-line .label { font-size: 11px; line-height: 1; padding: 0 4px; color: var(--lilac); background: var(--surface-raised); }
 
 .lane-hidden {
     display: flex; align-items: center; gap: 8px; margin-top: 4px; padding: 10px 4px 0;
