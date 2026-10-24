@@ -4,7 +4,7 @@
 #   tag v1.2.3-beta.1 (any "-")  -> :beta, :1.2.3-beta.1
 #   tag v1.2.3                   -> :latest, :1.2.3, :1.2
 #
-# Tests must pass before anything is pushed. Images: ghcr.io/<owner>/doiq and ghcr.io/<owner>/doiq-backup.
+# Tests must pass before anything is pushed. Image: ghcr.io/<owner>/doiq.
 name: Docker images
 
 on:
@@ -37,20 +37,15 @@ jobs:
   publish:
     needs: test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - image: doiq
-            context: .
-          - image: doiq-backup
-            context: deploy
+    env:
+      IMAGE_NAME: doiq
     steps:
       - uses: actions/checkout@v4
 
       - name: Image name
         id: name
         # Registry paths must be lower case; the owner name may not be.
-        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Release channel
         id: channel
@@ -84,10 +79,10 @@ jobs:
 
       - uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context }}
+          context: .
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+          cache-from: type=gha,scope=${{ env.IMAGE_NAME }}
+          cache-to: type=gha,mode=max,scope=${{ env.IMAGE_NAME }}

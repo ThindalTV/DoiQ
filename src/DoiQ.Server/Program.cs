@@ -27,6 +27,10 @@ if (string.IsNullOrWhiteSpace(keysPath))
 }
 Directory.CreateDirectory(keysPath);
 builder.Services.AddDataProtection().SetApplicationName("DoiQ").PersistKeysToFileSystem(new DirectoryInfo(keysPath));
+
+// Nightly SQLite backup (VACUUM INTO) next to the database, with a copy of the keys; see BackupOptions.
+builder.Services.PostConfigure<DoiQ.Core.Backup.BackupOptions>(o => o.KeysPath ??= keysPath);
+builder.Services.AddHostedService<DoiQ.Server.Backup.BackupWorker>();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentActor, HttpCurrentActor>();
 builder.Services.AddSingleton<IBoardBroadcaster, SignalRBroadcaster>();

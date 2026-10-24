@@ -1,3 +1,4 @@
+using DoiQ.Core.Backup;
 using DoiQ.Core.Data;
 using DoiQ.Core.Options;
 using DoiQ.Core.Services;
@@ -33,6 +34,11 @@ public static class DependencyInjection
         }
         builder.DefaultTimeout = Math.Max(builder.DefaultTimeout, 30);   // wait on writer locks instead of failing
         services.AddDbContext<DoiQDbContext>(o => o.UseSqlite(builder.ToString()));
+
+        services.Configure<BackupOptions>(config.GetSection(BackupOptions.Section));
+        var databasePath = string.IsNullOrEmpty(builder.DataSource) || builder.DataSource == ":memory:" ? null : Path.GetFullPath(builder.DataSource);
+        services.PostConfigure<BackupOptions>(o => o.DatabasePath ??= databasePath);
+        services.AddSingleton<BackupService>();
 
         services.AddScoped<ActorService>();
         services.AddScoped<AccountService>();

@@ -43,15 +43,6 @@ services:
       - doiq-data:/data
     restart: unless-stopped
 
-  doiq-backup:
-    image: ghcr.io/thindaltv/doiq-backup:latest
-    user: "1654:1654"
-    volumes:
-      - doiq-data:/data
-    restart: unless-stopped
-    depends_on:
-      - doiq
-
 volumes:
   doiq-data:
 ```
@@ -199,15 +190,9 @@ Verified automatically (`tests/DoiQ.Tests`, `HermesFlowTests` and `McpToolTests`
 
 ## Backup and restore
 
-The `doiq-backup` service in `docker-compose.yml` runs `deploy/backup.sh` nightly at 03:00 (container time, UTC by default) using SQLite's online `.backup`, which is safe while the app is running in WAL mode. Backups are integrity-checked and written to `./data/backups/doiq-<timestamp>.db`; the newest 14 are kept. Tune with environment variables on that service: `BACKUP_HOUR` (default `3`), `BACKUP_KEEP` (default `14`), `TZ`.
+The app backs itself up every night at 03:00 (the container's local time, UTC unless `TZ` is set) with SQLite's `VACUUM INTO`, which is safe while it runs in WAL mode. Each backup is integrity-checked and written to `./data/backups/doiq-<timestamp>.db`, the login keys are copied to `./data/backups/keys`, and the newest 14 are kept. Nothing needs configuring; to change it set `Backup__Hour` (0-23), `Backup__Keep`, `Backup__Directory`, or `Backup__Enabled=false` to switch it off.
 
-Run one by hand:
-
-```bash
-docker compose run --rm --entrypoint /usr/local/bin/backup.sh doiq-backup
-```
-
-Never copy `doiq.db` while the app is running: with WAL on, the data is split across `doiq.db`, `doiq.db-wal` and `doiq.db-shm`.
+Never copy `doiq.db` while the app is running: with WAL on, the data is split across `doiq.db`, `doiq.db-wal` and `doiq.db-shm`. With the app stopped (`docker compose stop doiq`), copying the whole `data` folder is a safe extra backup.
 
 **Restore:**
 
