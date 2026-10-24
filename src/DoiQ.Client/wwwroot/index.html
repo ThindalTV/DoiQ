@@ -12,7 +12,6 @@
     <link rel="stylesheet" href="css/app.css" />
     <!-- If you add any scoped CSS files, uncomment the following to load them
     <link href="DoiQ.Client.styles.css" rel="stylesheet" /> -->
-    <script type="importmap"></script>
 </head>
 
 <body>
@@ -30,7 +29,9 @@
         <span class="dismiss">🗙</span>
     </div>
     <script src="js/board.js"></script>
-    <script src="_framework/blazor.webassembly#[.{fingerprint}].js"></script>
+    <!-- Plain path on purpose: the server's MapStaticAssets maps it to the fingerprinted file. A #[.{fingerprint}]
+         placeholder here is only filled in when the client is published on its own, not when the server hosts it. -->
+    <script src="_framework/blazor.webassembly.js"></script>
 </body>
 
 </html>

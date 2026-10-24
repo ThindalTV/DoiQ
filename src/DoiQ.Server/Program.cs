@@ -118,13 +118,13 @@ await app.Services.InitializeDoiQ(app.Configuration, app.Lifetime.ApplicationSto
 
 app.UseForwardedHeaders();
 app.UseExceptionHandler();
-app.UseBlazorFrameworkFiles();
-app.UseStaticFiles();
 app.UseRouting();
 app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// The Blazor client's files, fingerprinted and pre-compressed at publish; public so the login page can load.
+app.MapStaticAssets().AllowAnonymous();
 app.MapDoiQApi();
 app.MapMcp("/mcp");
 app.MapHub<BoardHub>(DoiQ.Shared.Dtos.BoardHubEvents.HubPath);
