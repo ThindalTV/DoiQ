@@ -38,6 +38,49 @@ public sealed class HttpTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMcp_WithAValidAgentKey_ReportsOkAndTheAgent()
+    {
+        // Arrange
+        var (_, agent) = await AgentAsync(await SignedInUserAsync());
+
+        // Act
+        var response = await agent.GetAsync("/mcp");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<Dictionary<string, string>>();
+        Assert.Equal(("ok", "Loki"), (body!["status"], body["actor"]));
+    }
+
+    [Fact]
+    public async Task GetMcp_WithAWrongKey_ReturnsUnauthorized()
+    {
+        // Arrange
+        await SignedInUserAsync();
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Api-Key", "not-a-real-key");
+
+        // Act
+        var response = await client.GetAsync("/mcp");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetMcp_WithoutAKey_ReturnsUnauthorizedNotTheAppPage()
+    {
+        // Arrange
+        var client = _factory.CreateClient();
+
+        // Act
+        var response = await client.GetAsync("/mcp");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+    }
+
+    [Fact]
     public async Task GetSetupStatus_FreshDatabase_ReportsNeedsSetup()
     {
         // Arrange

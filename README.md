@@ -118,6 +118,7 @@ Nobody archives by hand. A task that has been in **Done** for longer than `Board
 
 - MCP endpoint (streamable HTTP, stateless): `http://<host>:8080/mcp`
 - REST API: `http://<host>:8080/api/...`
+- Health check for an agent's MCP settings: `GET /mcp` with the agent's key answers `200 {"status":"ok","actor":"<agent name>",...}`; a missing or wrong key gets `401`. (MCP calls themselves are POSTs to the same URL.)
 
 An agent identifies itself on every request with its key, in either header:
 
