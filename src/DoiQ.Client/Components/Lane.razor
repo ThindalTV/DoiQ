@@ -1,4 +1,4 @@
-<section aria-label="@Title" class="lane @(IsOver ? "is-over" : "") @(NoDrop ? "no-drop" : "")"
+<section aria-label="@Title" class="lane lane-@LaneId.ToString().ToLowerInvariant() @(IsOver ? "is-over" : "") @(NoDrop ? "no-drop" : "")"
          @ondragover="() => OnDragOver.InvokeAsync(new DropTarget(LaneId, null))" @ondragover:preventDefault="!NoDrop"
          @ondrop="() => OnDrop.InvokeAsync()" @ondrop:preventDefault="!NoDrop">
     <div class="lane-head">

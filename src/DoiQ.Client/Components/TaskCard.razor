@@ -1,4 +1,4 @@
-<div id="card-@Task.Id" class="card @(Focused ? "is-focused" : "") @(Dragging ? "is-dragging" : "") @(Task.Archived ? "is-archived" : "")"
+<div id="card-@Task.Id" class="card lane-@Task.Lane.ToString().ToLowerInvariant() @(Focused ? "is-focused" : "") @(Dragging ? "is-dragging" : "") @(Task.Archived ? "is-archived" : "")"
      role="button" tabindex="0" draggable="true"
      @onclick="() => OnOpen.InvokeAsync(Task.Id)"
      @onfocus="() => OnFocus.InvokeAsync(Task.Id)"

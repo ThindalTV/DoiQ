@@ -21,6 +21,19 @@
     --border: var(--violet);
     --border-strong: #9466d6;
     --focus: var(--lilac);
+    /* Status palette: purple is the brand, these carry meaning. */
+    --lane-new: #4fd1e0;
+    --lane-waiting: #ffb84d;
+    --lane-doing: #7aa8ff;
+    --lane-done: #5fdc94;
+    --danger: #ff7b7b;
+    --danger-bg: #5b1a28;
+    --unread: #ff7ad9;
+    --who-user: #ffc48a;
+    --who-agent: #3fcfb4;
+    --ok: #5fdc94;
+    --warn: #ffb84d;
+
     --shadow-glow: 0 0 24px rgba(127, 53, 193, 0.45);
 
     --font-display: Antonio, "Arial Narrow", sans-serif;
@@ -481,3 +494,60 @@ code { font-family: var(--font-mono); font-size: 13px; }
     .sc-grid { grid-template-columns: 1fr; }
     .props { grid-template-columns: 1fr; }
 }
+
+/* ---- status colours ---- */
+.lane-new { --lane: var(--lane-new); }
+.lane-waiting { --lane: var(--lane-waiting); }
+.lane-doing { --lane: var(--lane-doing); }
+.lane-done { --lane: var(--lane-done); }
+.lane { border-top: 3px solid var(--lane, var(--border)); }
+.lane-head h2 { color: var(--lane, var(--ink)); }
+.lane.is-over { border-color: var(--lane, var(--lilac)); }
+.card { border-left: 4px solid var(--lane, var(--border)); }
+.card.is-focused { outline-color: var(--lane, var(--lilac)); }
+
+/* who: people warm, agents teal, the pool dashed teal */
+.av-user { background: var(--who-user); color: #2a1500; }
+.av-agent { background: var(--who-agent); color: #00281f; box-shadow: none; }
+.av-pool { border: 1px dashed var(--who-agent); color: var(--who-agent); }
+.card-meta .unassigned { color: var(--warn); }
+.card-meta .unassigned .av-none { border-color: var(--warn); }
+
+/* attention */
+.unread-dot { background: var(--unread); box-shadow: 0 0 8px var(--unread); }
+.badge-new { background: var(--unread); color: #2a0020; }
+.comment .head .badge-new { color: #2a0020; }
+.new-sep { color: var(--unread); }
+.new-sep span { background: var(--unread); }
+.field-card.is-new { border-color: var(--unread); }
+.card-meta .overdue { color: var(--danger); }
+.card-meta .overdue .ic * { stroke: var(--danger); }
+.count-badge { background: var(--unread); color: #2a0020; }
+
+/* icons by kind */
+.ic-calendar rect, .ic-calendar path { stroke: var(--warn); }
+.ic-subtasks rect, .ic-subtasks path { stroke: var(--ok); }
+.ic-comment path { stroke: var(--lane-doing); }
+.ic-mail rect, .ic-mail path { stroke: var(--lane-new); }
+.ic-fields path { stroke: var(--lilac); }
+
+/* connection */
+.presence .conn-live { color: var(--ok); }
+.presence .conn-live .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.presence .conn-connecting, .presence .conn-reconnecting { color: var(--warn); }
+.presence .conn-connecting .dot, .presence .conn-reconnecting .dot { box-shadow: inset 0 0 0 2px var(--warn); }
+.presence .conn-offline { color: var(--danger); }
+.presence .conn-offline .dot { box-shadow: inset 0 0 0 2px var(--danger); }
+
+/* progress, notices, errors */
+.progress > span { background: var(--ok); }
+.notice-warning { border-color: var(--warn); }
+.notice-error { border-color: var(--danger); }
+.notice-info { border-color: var(--lane-new); }
+.form-error { color: var(--danger); }
+.btn-danger { border-color: var(--danger); color: var(--danger); }
+.btn-danger:hover { background: var(--danger-bg); color: #ffd0d0; }
+.agent-card .status.on { color: var(--ok); border-color: var(--ok); }
+.stash { border-color: var(--warn); }
+.secret-panel { border-color: var(--warn); }
+.secret-panel .warn { color: var(--warn); }
