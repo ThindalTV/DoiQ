@@ -1,11 +1,15 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="240" height="240" role="img" aria-label="DoiQ">
   <title>DoiQ</title>
-  <!-- Q ring, open at the lower right where the tail leaves -->
-  <path d="M93.8 72.3 A36 36 0 1 0 72.3 93.8" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
-  <!-- Q tail -->
-  <path d="M76 76 L103 103" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
-  <!-- the "do": a checkmark -->
-  <path d="M43 60 L55 72 L77 47" fill="none" stroke="#14B8A6" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- the agent: a spark sharing the list -->
-  <circle cx="99" cy="21" r="8" fill="#F59E0B"/>
+  <rect width="120" height="120" rx="26" fill="#16043e"/>
+  <g transform="translate(60 60) scale(0.82) translate(-61 -61)">
+    <!-- the board, drawn as the body of a Q -->
+    <rect x="18" y="18" width="78" height="78" rx="20" fill="none" stroke="#c49bf5" stroke-width="9"/>
+    <!-- the four lanes: new, waiting, doing, done -->
+    <rect x="31" y="34" width="9" height="40" rx="4.5" fill="#4fd1e0"/>
+    <rect x="45" y="34" width="9" height="26" rx="4.5" fill="#ffb84d"/>
+    <rect x="59" y="34" width="9" height="46" rx="4.5" fill="#7aa8ff"/>
+    <rect x="73" y="34" width="9" height="20" rx="4.5" fill="#5fdc94"/>
+    <!-- Q tail -->
+    <path d="M82 82 L104 104" stroke="#c49bf5" stroke-width="10" stroke-linecap="round"/>
+  </g>
 </svg>

@@ -1,10 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 120" width="630" height="180" role="img" aria-label="DoiQ">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 120" width="540" height="180" role="img" aria-label="DoiQ">
   <title>DoiQ</title>
-  <text x="0" y="88" font-family="Inter, 'Segoe UI', Helvetica, Arial, sans-serif" font-size="84" font-weight="700" letter-spacing="-2" fill="#1E1B4B">Doi</text>
-  <g transform="translate(236 0)">
-    <path d="M93.8 72.3 A36 36 0 1 0 72.3 93.8" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
-    <path d="M76 76 L103 103" fill="none" stroke="#4F46E5" stroke-width="12" stroke-linecap="round"/>
-    <path d="M43 60 L55 72 L77 47" fill="none" stroke="#14B8A6" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="99" cy="21" r="8" fill="#F59E0B"/>
+  <style>
+    .word { fill: #40137c; }
+    @media (prefers-color-scheme: dark) { .word { fill: #e7ddf6; } }
+  </style>
+  <rect width="120" height="120" rx="26" fill="#16043e"/>
+  <g transform="translate(60 60) scale(0.82) translate(-61 -61)">
+    <rect x="18" y="18" width="78" height="78" rx="20" fill="none" stroke="#c49bf5" stroke-width="9"/>
+    <rect x="31" y="34" width="9" height="40" rx="4.5" fill="#4fd1e0"/>
+    <rect x="45" y="34" width="9" height="26" rx="4.5" fill="#ffb84d"/>
+    <rect x="59" y="34" width="9" height="46" rx="4.5" fill="#7aa8ff"/>
+    <rect x="73" y="34" width="9" height="20" rx="4.5" fill="#5fdc94"/>
+    <path d="M82 82 L104 104" stroke="#c49bf5" stroke-width="10" stroke-linecap="round"/>
   </g>
+  <text class="word" x="148" y="94" font-family="Antonio, 'Arial Narrow', sans-serif" font-size="88" font-weight="300" letter-spacing="5">DOIQ</text>
 </svg>
