@@ -367,10 +367,15 @@ select { height: 36px; }
 /* ---- drawer ---- */
 .scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
 .drawer {
-    position: fixed; top: 0; right: 0; bottom: 0; width: 640px; max-width: 100%; z-index: 41;
+    position: fixed; top: 0; right: 0; bottom: 0; width: var(--drawer-w, 640px); max-width: 100%; z-index: 41;
     display: flex; flex-direction: column; background: var(--surface-raised);
     border-left: 1px solid var(--border-strong); box-shadow: var(--shadow-glow);
 }
+/* The left edge drags to resize (board.js keeps the width in --drawer-w); arrow keys work when it has focus. */
+.drawer-resize { position: absolute; top: 0; bottom: 0; left: -4px; width: 8px; cursor: ew-resize; z-index: 1; touch-action: none; }
+.drawer-resize:hover, .drawer-resize:focus-visible, .drawer-resize.dragging { background: linear-gradient(to right, transparent 3px, var(--focus) 3px, var(--focus) 5px, transparent 5px); outline: none; }
+body.drawer-resizing { cursor: ew-resize; user-select: none; }
+@media (max-width: 720px) { .drawer-resize { display: none; } }
 .drawer-head { display: flex; align-items: center; gap: 12px; padding: 14px 24px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--ink-muted); }
 .drawer-head .close { margin-left: auto; }
 .close {

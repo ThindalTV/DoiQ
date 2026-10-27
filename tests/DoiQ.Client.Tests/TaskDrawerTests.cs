@@ -289,7 +289,7 @@ public sealed class TaskDrawerTests : ClientTestBase
         var cut = RenderDrawer(task);
 
         // Assert
-        var separator = Assert.Single(cut.FindAll("[role=separator]"));
+        var separator = Assert.Single(cut.FindAll(".new-sep[role=separator]"));
         Assert.Contains("New since you looked", separator.TextContent);
         var comments = cut.FindAll(".comment");
         Assert.Empty(comments[0].QuerySelectorAll(".badge-new"));
@@ -308,7 +308,7 @@ public sealed class TaskDrawerTests : ClientTestBase
         var cut = RenderDrawer(task);
 
         // Assert
-        Assert.Empty(cut.FindAll("[role=separator]"));
+        Assert.Empty(cut.FindAll(".new-sep[role=separator]"));
         Assert.Empty(cut.FindAll(".comment .badge-new"));
     }
 
@@ -323,7 +323,7 @@ public sealed class TaskDrawerTests : ClientTestBase
         cut.Render(p => p.Add(d => d.Task, fresh with { Comments = [Tasks.Comment(1, isNew: false)] }));
 
         // Assert
-        Assert.Single(cut.FindAll("[role=separator]"));
+        Assert.Single(cut.FindAll(".new-sep[role=separator]"));
         Assert.Single(cut.FindAll(".comment .badge-new"));
     }
 

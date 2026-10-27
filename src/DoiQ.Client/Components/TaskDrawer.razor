@@ -5,6 +5,8 @@
 
 <div class="scrim" @onclick="OnClose"></div>
 <aside class="drawer" role="dialog" aria-label="Task details">
+    <div class="drawer-resize" role="separator" aria-orientation="vertical" aria-label="Resize the drawer" tabindex="0"
+         title="Drag to resize, double-click to reset"></div>
     <div class="drawer-head">
         <span class="mono">#@Task.Id</span>
         <span>@Task.Lane</span>

@@ -95,3 +95,60 @@ window.doiq = {
         });
     }
 };
+
+// The task drawer's width: dragged on its left edge (or arrow keys on it), kept in --drawer-w and remembered in this
+// browser. Delegated from the document, so it works for every drawer without Blazor taking part.
+(() => {
+    const root = document.documentElement;
+    const min = 400;
+    const viewport = () => root.clientWidth;   // without the scrollbar, which is where the fixed drawer's right edge sits
+    const max = () => Math.max(min, viewport() - 120);
+    const clamp = (w) => Math.round(Math.min(max(), Math.max(min, w)));
+    const set = (w, remember) => {
+        if (w === null) { root.style.removeProperty('--drawer-w'); }
+        else root.style.setProperty('--drawer-w', clamp(w) + 'px');
+        if (!remember) return;
+        try { if (w === null) localStorage.removeItem('doiq.drawerWidth'); else localStorage.setItem('doiq.drawerWidth', String(clamp(w))); } catch { /* private mode: not remembered */ }
+    };
+    try { const w = parseInt(localStorage.getItem('doiq.drawerWidth') || '', 10); if (w) set(w, false); } catch { }
+
+    const width = (handle) => handle.closest('.drawer').getBoundingClientRect().width;
+
+    document.addEventListener('pointerdown', (e) => {
+        const handle = e.target.closest?.('.drawer-resize');
+        if (!handle || e.button !== 0) return;
+        e.preventDefault();
+        handle.setPointerCapture(e.pointerId);
+        handle.classList.add('dragging');
+        document.body.classList.add('drawer-resizing');
+        const move = (m) => set(viewport() - m.clientX, false);
+        const up = () => {
+            handle.removeEventListener('pointermove', move);
+            handle.classList.remove('dragging');
+            document.body.classList.remove('drawer-resizing');
+            set(width(handle), true);
+        };
+        handle.addEventListener('pointermove', move);
+        handle.addEventListener('pointerup', up, { once: true });
+        handle.addEventListener('pointercancel', up, { once: true });
+    });
+
+    document.addEventListener('dblclick', (e) => {
+        if (e.target.closest?.('.drawer-resize')) set(null, true);
+    });
+
+    // Left widens, Right narrows (the drawer grows leftwards); Shift takes bigger steps.
+    document.addEventListener('keydown', (e) => {
+        const handle = e.target.closest?.('.drawer-resize');
+        if (!handle || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        e.preventDefault();
+        const step = (e.shiftKey ? 80 : 20) * (e.key === 'ArrowLeft' ? 1 : -1);
+        set(width(handle) + step, true);
+    });
+
+    // A remembered width that no longer fits a smaller window shrinks to fit.
+    window.addEventListener('resize', () => {
+        const w = parseInt(root.style.getPropertyValue('--drawer-w'), 10);
+        if (w && w > max()) set(max(), false);
+    });
+})();
