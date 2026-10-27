@@ -223,6 +223,87 @@ public sealed class BoardClientTests : IDisposable
         Assert.Contains("1 task", api.Message);
     }
 
+    // ───────────────────────── moving a task to another board ─────────────────────────
+
+    private static async Task MoveToBoardAsync(HttpClient who, int taskId, int boardId) =>
+        (await who.PostAsJsonAsync($"/api/tasks/{taskId}/move-to-board", new MoveToBoardRequest(boardId))).EnsureSuccessStatusCode();
+
+    [Fact]
+    public async Task DoiQApiClient_MoveToBoard_TakesTheTaskOffTheShownBoardAndUpdatesTheCounts()
+    {
+        // Arrange
+        var s = await ArrangeAsync();
+        var id = await CreateAsync(s.UserHttp, s.MainId, "Moving");
+        await s.Browser.SelectBoardAsync(s.MainId);
+        await s.Browser.GetBoard(Ct);
+
+        // Act
+        await s.Browser.MoveToBoard(id, s.WorkId, Ct);
+
+        // Assert
+        Assert.Empty(await TitlesAsync(s.Browser));
+        Assert.Equal(1, s.Browser.Boards.Single(b => b.Id == s.WorkId).OpenTasks);
+        Assert.Equal(0, s.Browser.Boards.Single(b => b.Id == s.MainId).OpenTasks);
+    }
+
+    [Fact]
+    public async Task DoiQApiClient_PushOfTaskMovedAway_RemovesItFromTheShownBoard()
+    {
+        // Arrange
+        var s = await ArrangeAsync();
+        var id = await CreateAsync(s.UserHttp, s.MainId, "Moving");
+        await s.Browser.SelectBoardAsync(s.MainId);
+        await s.Browser.GetBoard(Ct);
+        await ConnectAsync(s.Browser, s.Cookie);
+
+        // Act
+        await MoveToBoardAsync(s.Agent, id, s.WorkId);
+
+        // Assert
+        Assert.True(await EventuallyAsync(async () => (await s.Browser.GetBoard(Ct)).Count == 0));
+    }
+
+    [Fact]
+    public async Task DoiQApiClient_PushOfTaskMovedHere_AddsItWithoutTouchingTheArchivedCount()
+    {
+        // Arrange
+        var s = await ArrangeAsync();
+        var id = await CreateAsync(s.UserHttp, s.MainId, "Arriving");
+        await s.Browser.SelectBoardAsync(s.WorkId);
+        await s.Browser.GetBoard(Ct);
+        await ConnectAsync(s.Browser, s.Cookie);
+        var archived = s.Browser.ArchivedCount;
+
+        // Act
+        await MoveToBoardAsync(s.Agent, id, s.WorkId);
+
+        // Assert
+        Assert.True(await EventuallyAsync(async () => (await s.Browser.GetBoard(Ct)).Any(t => t.Id == id)));
+        Assert.Equal(archived, s.Browser.ArchivedCount);
+    }
+
+    [Fact]
+    public async Task DoiQApiClient_CatchUpAfterTaskMovedAway_RemovesItAndTheOtherBoardGetsIt()
+    {
+        // Arrange
+        var s = await ArrangeAsync();
+        var id = await CreateAsync(s.UserHttp, s.MainId, "Moving");
+        await s.Browser.SelectBoardAsync(s.MainId);
+        await s.Browser.GetBoard(Ct);
+        var work = new DoiQApiClient(s.UserHttp);
+        await work.SelectBoardAsync(s.WorkId);
+        await work.GetBoard(Ct);
+
+        // Act
+        await MoveToBoardAsync(s.Agent, id, s.WorkId);
+        await s.Browser.CatchUpAsync();
+        await work.CatchUpAsync();
+
+        // Assert
+        Assert.Empty(await TitlesAsync(s.Browser));
+        Assert.Equal(["Moving"], await TitlesAsync(work));
+    }
+
     public void Dispose()
     {
         foreach (var c in _connections) c.DisposeAsync().AsTask().GetAwaiter().GetResult();

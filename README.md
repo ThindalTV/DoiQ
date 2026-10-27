@@ -96,7 +96,9 @@ docker compose start doiq
 
 ## Boards
 
-DoiQ can hold several boards, each with a name. A fresh database (and an upgraded one, whose existing tasks all move onto it) starts with one board called **Main**. Boards are fully separate: they do not interact, and a task never moves between boards (there is no endpoint, UI or MCP tool for it, and a move next to a task from another board is rejected).
+DoiQ can hold several boards, each with a name. A fresh database (and an upgraded one, whose existing tasks all move onto it) starts with one board called **Main**. A task is on one board at a time and can be moved to another (a lane move next to a task from another board is still rejected).
+
+- **Moving a task to another board:** in the drawer, pick the board under **Board** (shown when there is more than one). The task keeps its lane, assignee, fields, comments, checklist and history, and goes to the bottom of its lane on the new board; it leaves the old board live in every open tab, and the notice links to where it went. Agents use MCP `move_task_to_board` (`boardId` or `boardName`) on any task they may edit; REST is `POST /api/tasks/{id}/move-to-board` with `{ "boardId": 2 }` or `{ "boardName": "Home" }` and an optional `expectedVersion`. It records a `MovedToBoard` event on the new board (payload `from`, `to`), wakes the task's agent like other changes by the user, and the task's queued webhooks follow it. A task made from a source (`sourceRef`) cannot go to a board that already has a task from the same source (409).
 
 - **Switching:** the board menu in the top bar (key `B`; `Shift H` / `Shift L` for previous/next board). Each board has its own URL (`/board/<id>`), the last board used is remembered per browser, and the board name is in the page title.
 - **Managing:** **Settings > Boards** (the user only; agents cannot add, rename or delete boards). Names are required, trimmed, 1-60 characters and unique ignoring case. Each board shows how many tasks are open and done.

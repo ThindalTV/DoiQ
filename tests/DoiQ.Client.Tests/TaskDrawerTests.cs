@@ -512,6 +512,48 @@ public sealed class TaskDrawerTests : ClientTestBase
     }
 
     [Fact]
+    public void TaskDrawer_WithOneBoard_ShowsNoBoardPicker()
+    {
+        // Arrange
+        var task = Tasks.Make();
+
+        // Act
+        var cut = RenderDrawer(task);
+
+        // Assert
+        Assert.Empty(cut.FindAll("#task-board"));
+    }
+
+    [Fact]
+    public async Task TaskDrawer_WithSeveralBoards_ShowsTheCurrentBoardSelected()
+    {
+        // Arrange
+        await Api.CreateBoardAsync("Work");
+
+        // Act
+        var cut = RenderDrawer(Tasks.Make());
+
+        // Assert
+        Assert.Equal("Main", cut.Find("#task-board option[selected]").TextContent);
+        Assert.Equal(2, cut.FindAll("#task-board option").Count);
+    }
+
+    [Fact]
+    public async Task TaskDrawer_PickingAnotherBoard_AsksToMoveTheTaskThere()
+    {
+        // Arrange
+        var work = await Api.CreateBoardAsync("Work");
+        var moves = new List<int>();
+        var cut = RenderDrawer(Tasks.Make(), p => p.Add(d => d.OnMoveToBoard, Record(moves)));
+
+        // Act
+        cut.Find("#task-board").Change(work.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        // Assert
+        Assert.Equal([work.Id], moves);
+    }
+
+    [Fact]
     public void TaskDrawer_InTheLastLane_OffersNoMove()
     {
         // Arrange

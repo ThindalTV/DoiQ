@@ -357,6 +357,22 @@ public sealed class BoardFlowTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task MoveTaskToBoard_ByBoardName_PutsTheTaskOnThatBoard()
+    {
+        // Arrange
+        var work = await _host.UserAddBoardAsync("Work");
+        var mine = await CreateOnAsync(await MainIdAsync(), "Mine", assignee: "Hermes");
+        await using var mcp = await _host.McpAsync(_agent.ApiKey);
+
+        // Act
+        var result = await mcp.CallToolAsync("move_task_to_board", Args(("taskId", mine.Task.Id), ("boardName", "Work")));
+
+        // Assert
+        Assert.False(result.IsError == true, result.Text());
+        Assert.Equal(work.Id, (await _host.UserGetAsync(mine.Task.Id)).Task.BoardId);
+    }
+
+    [Fact]
     public async Task MoveTask_NeighbourOnAnotherBoard_FailsWithAdvice()
     {
         // Arrange
@@ -374,7 +390,7 @@ public sealed class BoardFlowTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ListTools_Always_OffersNoWayToChangeBoards()
+    public async Task ListTools_Always_OffersNoWayToAddRenameOrDeleteBoards()
     {
         // Arrange
         await using var mcp = await _host.McpAsync(_agent.ApiKey);
@@ -384,7 +400,8 @@ public sealed class BoardFlowTests : IAsyncLifetime
 
         // Assert
         Assert.Contains("list_boards", names);
-        Assert.DoesNotContain(names, n => n.Contains("board") && n != "list_boards");
+        Assert.Contains("move_task_to_board", names);
+        Assert.DoesNotContain(names, n => n.Contains("board") && n is not ("list_boards" or "move_task_to_board"));
         Assert.DoesNotContain(names, n => n.Contains("transfer") || n.Contains("copy"));
     }
 

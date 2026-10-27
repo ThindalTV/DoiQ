@@ -185,6 +185,18 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
         return Done();
     }
 
+    public Task MoveToBoard(int id, int boardId, CancellationToken ct)
+    {
+        if (!_byBoard.TryGetValue(boardId, out var target)) throw new ApiException($"Board {boardId} not found.", System.Net.HttpStatusCode.NotFound);
+        var i = _tasks.FindIndex(t => t.Id == id);
+        if (i < 0 || target == _tasks) return Task.CompletedTask;
+        var t = _tasks[i] with { UpdatedAt = DateTimeOffset.Now, UpdatedBy = Fmt.HumanServerName };
+        _tasks.RemoveAt(i);
+        var last = target.FindLastIndex(x => x.Lane == t.Lane);
+        target.Insert(last < 0 ? target.Count : last + 1, t);
+        return Done();
+    }
+
     public Task DeleteTaskAsync(int id)
     {
         _tasks.RemoveAll(t => t.Id == id);

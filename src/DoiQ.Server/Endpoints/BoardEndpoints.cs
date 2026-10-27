@@ -6,7 +6,7 @@ namespace DoiQ.Server.Endpoints;
 
 /// <summary>
 /// Boards. Listing is open to every signed-in caller (agents need the ids); add, rename and delete are the user only.
-/// There is deliberately no route that moves a task between boards.
+/// Moving a task to another board is a task route (POST /api/tasks/{id}/move-to-board).
 /// </summary>
 public static class BoardEndpoints
 {

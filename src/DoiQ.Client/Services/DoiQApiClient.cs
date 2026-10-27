@@ -271,15 +271,27 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     }
 
     /// <summary>The version of the task this client last saw (null when it holds none: the server then does not check).</summary>
+    public async Task MoveToBoard(int id, int boardId, CancellationToken ct)
+    {
+        var req = new MoveToBoardRequest(boardId, ExpectedVersion: VersionOf(id));
+        var s = await SendVersioned<TaskSummaryDto>(id, HttpMethod.Post, $"api/tasks/{id}/move-to-board", req, ct) ?? throw new ApiException("Empty response from the server.");
+        if (s.BoardId == _boardId) MergeSummary(s, byOther: false);
+        else Leave(id);
+        await GetBoardsAsync();   // the open and done counts of both boards changed
+    }
+
     private long? VersionOf(int id) => Find(id) is { Version: > 0 } t ? t.Version : null;
 
     /// <summary>
     /// A write that carries the task's version. A 409 means someone else changed it first: the task is reloaded so the
     /// board shows their version, then a <see cref="TaskConflictException"/> says who it was. A 404 drops the task.
     /// </summary>
-    private async Task<T?> SendVersioned<T>(int id, HttpMethod method, string url, object body)
+    private Task<T?> SendVersioned<T>(int id, HttpMethod method, string url, object body) =>
+        SendVersioned<T>(id, method, url, body, CancellationToken.None);
+
+    private async Task<T?> SendVersioned<T>(int id, HttpMethod method, string url, object body, CancellationToken ct)
     {
-        try { return await Send<T>(method, url, body); }
+        try { return await Send<T>(method, url, body, true, ct); }
         catch (ApiException e) when (e.Status == HttpStatusCode.Conflict)
         {
             try { await RefreshAsync(id); } catch (ApiException) { /* the next catch-up repairs it */ }
@@ -354,8 +366,9 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
             var existing = _state.Find(m.Task.Id);
             // A summary carries no description or lists: refetch when the event changed one of them (or the task is new here).
             var subtaskEvent = m.Type is EventType.SubtaskAdded or EventType.SubtaskUpdated or EventType.SubtaskDeleted;
-            var needsDetail = existing is null || (m.Type == EventType.Updated && byOther) || (subtaskEvent && _detailed.Contains(existing.Id));
-            return needsDetail ? await RefreshAsync(m.Task.Id) : MergeSummary(m.Task, byOther);
+            var arrived = m.Type == EventType.MovedToBoard;
+            var needsDetail = existing is null || arrived || (m.Type == EventType.Updated && byOther) || (subtaskEvent && _detailed.Contains(existing.Id));
+            return needsDetail ? await RefreshAsync(m.Task.Id, arrived) : MergeSummary(m.Task, byOther);
         });
     }
 
@@ -405,8 +418,9 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     /// <summary>
     /// Applies one pushed event. Event ids are global, so an event of another board is only taken in (it keeps the ids
-    /// consecutive) and never applied. The cursor moves only through consecutive ids: an event that arrives ahead of
-    /// an earlier one is applied, but leaves a gap that a debounced catch-up fills.
+    /// consecutive) and never applied, except that a task this board holds has left it for that board. The cursor moves
+    /// only through consecutive ids: an event that arrives ahead of an earlier one is applied, but leaves a gap that a
+    /// debounced catch-up fills.
     /// </summary>
     private async Task ApplyEventAsync(long eventId, int boardId, int taskId, Func<Task<bool>> apply)
     {
@@ -414,7 +428,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
         try
         {
             if (!_state.IsLoaded || _state.IsApplied(eventId)) return;
-            var changed = boardId == _boardId && await apply();
+            var changed = boardId == _boardId ? await apply() : Holds(taskId) && Leave(taskId);
             if (boardId == _boardId) TookIn(taskId, eventId);
             _state.TryAdvance(eventId);
             if (_state.HasGap) ScheduleCatchUp();
@@ -453,23 +467,32 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
             var cursor = _state.LastEventId;
             var touched = new HashSet<int>();
             var deleted = new HashSet<int>();
+            var left = new HashSet<int>();      // held here, but moved to another board
+            var arrived = new HashSet<int>();   // moved here from another board
             for (var more = true; more;)
             {
                 // Every board's events: the ids of the other boards are part of the sequence the cursor walks through.
                 var feed = await Send<EventFeedDto>(HttpMethod.Get, $"api/events?after={cursor}&limit=100") ?? throw new ApiException("Empty response from the server.");
                 foreach (var e in feed.Events)
                 {
-                    if (e.BoardId != _boardId || _state.IsApplied(e.Id)) continue;
+                    if (_state.IsApplied(e.Id)) continue;
+                    if (e.BoardId != _boardId)
+                    {
+                        if (e.Type == EventType.MovedToBoard && Holds(e.TaskId)) left.Add(e.TaskId);
+                        continue;
+                    }
                     if (e.Type == EventType.Deleted) { deleted.Add(e.TaskId); touched.Remove(e.TaskId); }
                     else if (!deleted.Contains(e.TaskId)) touched.Add(e.TaskId);
+                    if (e.Type == EventType.MovedToBoard) arrived.Add(e.TaskId);
                 }
                 cursor = feed.NextCursor;
                 more = feed.HasMore;
             }
 
             var changed = false;
+            foreach (var id in left) changed |= Leave(id);
             foreach (var id in deleted) changed |= Forget(id);
-            foreach (var id in touched) changed |= await RefreshAsync(id);
+            foreach (var id in touched) changed |= await RefreshAsync(id, arrived.Contains(id));
             _state.CatchUpTo(cursor);
             if (changed) Changed?.Invoke();
 
@@ -482,12 +505,16 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     // ---- helpers ----
 
-    /// <summary>Refetches one task's detail into the board (or drops it when it is gone). True when the board changed.</summary>
-    private async Task<bool> RefreshAsync(int id)
+    /// <summary>
+    /// Refetches one task's detail into the board (or drops it when it is gone). <paramref name="arrived"/>: it was just
+    /// moved here from another board. True when the board changed.
+    /// </summary>
+    private async Task<bool> RefreshAsync(int id, bool arrived = false)
     {
         var d = await FetchDetailAsync(id);
-        if (d is null || d.Task.BoardId != _boardId) return Forget(id);   // gone, or on another board (never shown here)
-        return StoreDetail(d);
+        if (d is null) return Forget(id);
+        if (d.Task.BoardId != _boardId) return Leave(id);   // on another board (moved away, or never shown here)
+        return StoreDetail(d, arrived);
     }
 
     private async Task<TaskDetailDto?> FetchDetailAsync(int id)
@@ -503,10 +530,10 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     }
 
     /// <summary>Stores a full task: on the board, or (archived) aside, where it never shows on the board. True when the board changed.</summary>
-    private bool StoreDetail(TaskDetailDto d)
+    private bool StoreDetail(TaskDetailDto d, bool arrived = false)
     {
         TookIn(d.Task.Id, d.LatestEventId);
-        return Store(TaskMapper.FromDetail(d, Me), detailed: true);
+        return Store(TaskMapper.FromDetail(d, Me), detailed: true, arrived);
     }
 
     private void TookIn(int taskId, long eventId)
@@ -524,22 +551,24 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     /// <summary>
     /// The one place a task enters or leaves the board. An archived task is kept aside (a hub event for it must not put
     /// it back on the board); a task that comes out of the archive (it existed when the board loaded, but the board did
-    /// not have it) lowers the archived count.
+    /// not have it) lowers the archived count. A task that <paramref name="arrived"/> from another board was in neither:
+    /// it raises the count when it is archived and leaves it alone when it is not.
     /// </summary>
-    private bool Store(TaskVm vm, bool detailed)
+    private bool Store(TaskVm vm, bool detailed, bool arrived = false)
     {
         if (detailed) _detailed.Add(vm.Id); else _detailed.Remove(vm.Id);
         if (vm.Archived)
         {
+            var known = _offBoard.ContainsKey(vm.Id);
             _offBoard[vm.Id] = _offBoard.TryGetValue(vm.Id, out var held) && vm.Version < held.Version ? held : vm;
-            if (!_state.Remove(vm.Id)) return false;
+            if (!_state.Remove(vm.Id) && (!arrived || known)) return false;
             ArchivedCount++;
             return true;
         }
         var wasAside = _offBoard.Remove(vm.Id);
         var isNew = _state.Find(vm.Id) is null;
         var changed = _state.Upsert(vm);
-        if (isNew && changed && (wasAside || vm.CreatedAt.UtcDateTime < _loadedAtUtc) && ArchivedCount > 0) ArchivedCount--;
+        if (isNew && changed && !arrived && (wasAside || vm.CreatedAt.UtcDateTime < _loadedAtUtc) && ArchivedCount > 0) ArchivedCount--;
         return changed;
     }
 
@@ -547,6 +576,18 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     private void Replace(TaskVm vm)
     {
         if (!_state.Replace(vm) && _offBoard.ContainsKey(vm.Id)) _offBoard[vm.Id] = vm;
+    }
+
+    /// <summary>True when this client holds the task: on the board, or archived and set aside.</summary>
+    private bool Holds(int id) => _state.Find(id) is not null || _offBoard.ContainsKey(id);
+
+    /// <summary>Drops a task that is now on another board; one that was archived here no longer counts. True when the board changed.</summary>
+    private bool Leave(int id)
+    {
+        var archived = _offBoard.ContainsKey(id);
+        var changed = Forget(id);
+        if (archived && ArchivedCount > 0) { ArchivedCount--; return true; }
+        return changed;
     }
 
     /// <summary>Drops a task (deleted, gone or on another board). True when the board changed.</summary>

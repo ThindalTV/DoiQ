@@ -72,6 +72,8 @@ public interface IDoiQApiClient
 
     /// <summary>Moves to a lane; beforeId places it above that task, null puts it at the bottom.</summary>
     Task MoveAsync(int id, BoardLane lane, int? beforeId);
+    /// <summary>Puts the task on another board, in the same lane; it leaves the current board. The board counts are re-read.</summary>
+    Task MoveToBoard(int id, int boardId, CancellationToken ct);
     Task AssignAsync(int id, AssigneeVm assignee);
     Task DeleteTaskAsync(int id);
     Task MarkSeenAsync(int id);

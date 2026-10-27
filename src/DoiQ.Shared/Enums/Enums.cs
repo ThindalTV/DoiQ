@@ -42,6 +42,8 @@ public enum EventType
     Claimed = 11,
     Released = 12,
     Deleted = 13,
+    /// <summary>Put on another board. The event belongs to the new board; its payload names both.</summary>
+    MovedToBoard = 14,
 }
 
 [JsonConverter(typeof(StrictEnumConverter))]

@@ -121,6 +121,9 @@ public sealed record UpdateTaskRequest(string? Title = null, string? Description
 /// <summary>BeforeTaskId = place directly above that task, AfterTaskId = place directly below it. Neither = bottom of the target lane.</summary>
 public sealed record MoveTaskRequest(BoardStatus Status, int? BeforeTaskId = null, int? AfterTaskId = null, long? ExpectedVersion = null);
 
+/// <summary>The board to move a task to, by id or name (id wins). The task keeps its lane and goes to the bottom of it.</summary>
+public sealed record MoveToBoardRequest(int? BoardId = null, string? BoardName = null, long? ExpectedVersion = null);
+
 public sealed record AssignRequest(string? Assignee, long? ExpectedVersion = null);
 
 public sealed record FieldRequest(string Label, string Value);

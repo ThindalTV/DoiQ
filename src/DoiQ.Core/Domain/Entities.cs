@@ -31,7 +31,7 @@ public class AppSetting
     public string Value { get; set; } = "";
 }
 
-/// <summary>A kanban board. Boards are fully separate: a task belongs to exactly one and never moves.</summary>
+/// <summary>A kanban board. A task belongs to exactly one at a time; the user and agents can move it to another.</summary>
 public class Board
 {
     public int Id { get; set; }

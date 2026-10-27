@@ -464,6 +464,40 @@ public sealed class TaskService(
         return (await ProjectAsync([t], me, ct))[0];
     }
 
+    /// <summary>
+    /// Puts a task on another board, in the same lane (at the bottom), with everything it has: fields, comments,
+    /// checklist, assignee, claim and history. The user may move any task; an agent what it may edit. The task's
+    /// queued webhooks follow it, so they name the new board.
+    /// </summary>
+    public async Task<TaskSummaryDto> MoveToBoard(int id, MoveToBoardRequest req, CancellationToken ct)
+    {
+        var me = Me;
+        if (req.BoardId is null && string.IsNullOrWhiteSpace(req.BoardName))
+            throw new ValidationException("Say which board to move the task to: boardId or boardName (see list_boards).");
+        var t = await LoadAsync(id, req.ExpectedVersion, ct);
+        EnsureCanWrite(t, me);
+        var to = await ResolveBoardAsync(req.BoardId, req.BoardName, ct);
+        if (to.Id == t.BoardId) return (await ProjectAsync([t], me, ct))[0];
+        if (t.SourceRef is { } sourceRef &&
+            await db.Tasks.IgnoreQueryFilters().AnyAsync(x => x.BoardId == to.Id && x.SourceRef == sourceRef, ct))
+            throw new ConflictException($"Board '{to.Name}' already has a task made from the same source ({sourceRef}).");
+
+        var boards = await BoardsAsync(ct);
+        var fromName = BoardNameOf(boards, t.BoardId);
+        t.BoardId = to.Id;
+        t.SortOrder = await BottomOrderAsyncExcluding(to.Id, t.Status, t.Id, ct);
+        t.UpdatedAt = Now;
+        t.Version++;
+        foreach (var o in await db.Outbox.Where(o => o.TaskId == id && o.SentAt == null).ToListAsync(ct)) o.BoardId = to.Id;
+
+        var ev = Record(t, EventType.MovedToBoard, new { from = fromName, to = to.Name });
+        await PlanWakeupsAsync(ev, t, me, [], ct);
+        await CommitAsync(ct);
+        After(() => PublishChangedAsync(ev, t));
+        await RunAfterAsync();
+        return (await ProjectAsync([t], me, ct))[0];
+    }
+
     public async Task<TaskSummaryDto> AssignAsync(int id, AssignRequest req, CancellationToken ct = default)
     {
         var me = Me;
@@ -1136,7 +1170,7 @@ public sealed class TaskService(
         {
             if (neighbour is { } nid && lane.All(x => x.Id != nid) &&
                 await db.Tasks.IgnoreQueryFilters().AnyAsync(t => t.Id == nid && t.BoardId != boardId, ct))
-                throw new ValidationException($"{label} belongs to another board. Tasks cannot be positioned against, or moved to, another board.");
+                throw new ValidationException($"{label} belongs to another board. A task is positioned only against tasks on its own board; to put it on another board, move it to that board first.");
         }
         var b = before is { } bi ? lane.FirstOrDefault(x => x.Id == bi) ?? throw new ValidationException("beforeTaskId is not in the target lane.") : null;
         var a = after is { } ai ? lane.FirstOrDefault(x => x.Id == ai) ?? throw new ValidationException("afterTaskId is not in the target lane.") : null;
@@ -1255,7 +1289,7 @@ public sealed class TaskService(
     private static readonly HashSet<EventType> HumanTriggers =
     [
         EventType.Created, EventType.Assigned, EventType.Updated, EventType.Moved, EventType.FieldAdded, EventType.FieldUpdated,
-        EventType.CommentAdded, EventType.SubtaskAdded, EventType.SubtaskUpdated,
+        EventType.CommentAdded, EventType.SubtaskAdded, EventType.SubtaskUpdated, EventType.MovedToBoard,
     ];
 
     /// <summary>Queues (coalesced, debounced) webhook rows in the same SaveChanges as the change.</summary>

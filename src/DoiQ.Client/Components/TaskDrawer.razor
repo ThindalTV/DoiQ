@@ -40,6 +40,17 @@
                 }
             </select>
 
+            @if (Api.Boards.Count > 1)
+            {
+                <label for="task-board" class="k">Board</label>
+                <select id="task-board" @key="@("board" + Rev)" @onchange="e => OnMoveToBoard.InvokeAsync(int.Parse(e.Value!.ToString()!))">
+                    @foreach (var b in Api.Boards)
+                    {
+                        <option value="@b.Id" selected="@(b.Id == Api.CurrentBoardId)">@b.Name</option>
+                    }
+                </select>
+            }
+
             <span id="assignee-label" class="k">Assignee</span>
             <div role="group" aria-labelledby="assignee-label" class="seg seg-sm">
                 <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.User)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.UserVm)">
@@ -262,6 +273,8 @@
     /// <summary>Raised after a change the drawer saved itself, so the board reloads.</summary>
     [Parameter] public EventCallback OnChanged { get; set; }
     [Parameter] public EventCallback<BoardLane> OnMoveTo { get; set; }
+    /// <summary>The user picked another board (its id) for the task.</summary>
+    [Parameter] public EventCallback<int> OnMoveToBoard { get; set; }
     [Parameter] public EventCallback<AssigneeVm> OnAssign { get; set; }
     [Parameter] public EventCallback OnChooseAgent { get; set; }
     [Parameter] public EventCallback OnGive { get; set; }

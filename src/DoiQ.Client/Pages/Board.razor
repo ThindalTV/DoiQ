@@ -68,7 +68,7 @@
 {
     <TaskDrawer @ref="_drawer" Task="open" LastAgent="@_lastAgent" Revision="_rev"
                 OnClose="CloseDrawer" OnChanged="Reload" OnDeleted="AfterDelete"
-                OnMoveTo="lane => MoveTo(open.Id, lane)" OnAssign="a => Assign(open.Id, a)"                OnChooseAgent="() => ChooseAgent(open.Id)" OnGive="() => Give(open.Id)" OnTake="() => Take(open.Id)" />
+                OnMoveTo="lane => MoveTo(open.Id, lane)" OnMoveToBoard="board => MoveToBoard(open.Id, board)" OnAssign="a => Assign(open.Id, a)"                OnChooseAgent="() => ChooseAgent(open.Id)" OnGive="() => Give(open.Id)" OnTake="() => Take(open.Id)" />
 }
 
 @if (_pickerFor is not null)
@@ -484,6 +484,18 @@
         // The one place a position can leave the board: without the priority sort there is none to give.
         if (!_filter.CanReorder) before = null;
         await Do(() => Api.MoveAsync(id, lane, before));
+    }
+
+    /// <summary>The task leaves this board: the drawer closes, and the notice links to where it went.</summary>
+    private async Task MoveToBoard(int id, int boardId)
+    {
+        if (boardId == _shownBoardId) return;
+        var title = _all.FirstOrDefault(t => t.Id == id)?.Title ?? Api.Find(id)?.Title;
+        var target = Api.Boards.FirstOrDefault(b => b.Id == boardId)?.Name ?? "the other board";
+        if (!await Do(() => Api.MoveToBoard(id, boardId, _life.Token))) return;
+        if (_openId == id) _openId = null;
+        if (_focusedId == id) _focusedId = null;
+        Notices.Show(NoticeLevel.Info, $"Moved “{title}” to {target}.", "Go there", () => { GoToBoard(boardId); return Task.CompletedTask; });
     }
 
     private async Task Assign(int id, AssigneeVm who)
