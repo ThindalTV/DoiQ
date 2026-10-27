@@ -147,7 +147,12 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     public Task SetTitleAsync(int id, string title, long? baseVersion = null) => Edit(id, t => t with { Title = title.Trim() });
     public Task SetDescriptionAsync(int id, string description, long? baseVersion = null) => Edit(id, t => t with { Description = description });
     public Task SetDueAsync(int id, DateOnly? due, long? baseVersion = null) => Edit(id, t => t with { Due = due });
-    public Task AssignAsync(int id, AssigneeVm assignee) => Edit(id, t => t with { Assignee = assignee });
+    // As on the server: a New task given to an agent or the pool is theirs now and waits for them.
+    public Task AssignAsync(int id, AssigneeVm assignee) => Edit(id, t => t with
+    {
+        Assignee = assignee,
+        Lane = t.Lane == BoardLane.New && assignee.Kind is AssigneeKind.Agent or AssigneeKind.Pool ? BoardLane.Waiting : t.Lane,
+    });
 
     public Task MarkSeenAsync(int id) => Edit(id, t => t with
     {

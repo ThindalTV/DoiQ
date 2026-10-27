@@ -42,12 +42,12 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
         await c.CallToolAsync(tool, Args(args));
 
     [Fact]
-    public async Task ListTools_Always_ExposesTheEighteenToolsWithInstructions()
+    public async Task ListTools_Always_ExposesTheNineteenToolsWithInstructions()
     {
         // Arrange
         string[] expected =
         [
-            "list_boards", "get_inbox", "get_changes", "search_tasks", "get_task", "create_task", "update_task", "move_task", "assign_task", "upsert_field",
+            "list_boards", "get_inbox", "get_changes", "search_tasks", "get_task", "create_task", "update_task", "move_task", "assign_task", "ask_user", "upsert_field",
             "add_comment", "mark_seen", "mark_handled", "add_subtask", "update_subtask", "claim_task", "renew_claim", "release_task",
         ];
 
@@ -79,7 +79,7 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
     public async Task MoveTask_AgentOnTheUsersTask_MovesItForTheUser()
     {
         // Arrange
-        var task = await _f.Host.UserCreateAsync("mine " + Guid.NewGuid().ToString("N"), assignee: "User", status: BoardStatus.Waiting);
+        var task = await _f.Host.UserCreateAsync("mine " + Guid.NewGuid().ToString("N"), assignee: "User", status: BoardStatus.Doing);
 
         // Act
         var result = await CallAsync(_f.Hermes, "move_task", ("taskId", task.Task.Id), ("status", "Done"));
@@ -89,6 +89,37 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
         var after = await _f.Host.UserGetAsync(task.Task.Id);
         Assert.Equal(BoardStatus.Done, after.Task.Status);
         Assert.Equal("User", after.Task.Assignee);
+    }
+
+    [Fact]
+    public async Task MoveTask_AgentFromWaitingToDone_FailsWithAdviceToGoThroughDoing()
+    {
+        // Arrange
+        var task = await _f.Host.UserCreateAsync("skip " + Guid.NewGuid().ToString("N"), assignee: "Hermes");
+
+        // Act
+        var result = await CallAsync(_f.Hermes, "move_task", ("taskId", task.Task.Id), ("status", "Done"));
+
+        // Assert
+        Assert.True(result.IsError);
+        Assert.Contains("Move it to Doing", result.Text());
+    }
+
+    [Fact]
+    public async Task AskUser_AgentNeedsInformation_HandsTheTaskBackWithTheQuestion()
+    {
+        // Arrange
+        var task = await _f.Host.UserCreateAsync("ask " + Guid.NewGuid().ToString("N"), assignee: "Hermes");
+
+        // Act
+        var result = await CallAsync(_f.Hermes, "ask_user", ("taskId", task.Task.Id), ("question", "Which date?"));
+
+        // Assert
+        Assert.NotEqual(true, result.IsError);
+        var after = await _f.Host.UserGetAsync(task.Task.Id);
+        Assert.Equal(BoardStatus.Waiting, after.Task.Status);
+        Assert.Equal("User", after.Task.Assignee);
+        Assert.Equal("Which date?", Assert.Single(after.Comments).Body);
     }
 
     [Fact]

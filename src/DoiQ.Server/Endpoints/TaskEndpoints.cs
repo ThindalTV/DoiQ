@@ -30,6 +30,7 @@ public static class TaskEndpoints
         api.MapDelete("/tasks/{id:int}", async (int id, TaskService s, CancellationToken ct) => { await s.DeleteAsync(id, ct); return Results.NoContent(); });
         api.MapPost("/tasks/{id:int}/move", async (int id, MoveTaskRequest req, TaskService s, CancellationToken ct) => Results.Ok(await s.Move(id, req, ct)));
         api.MapPost("/tasks/{id:int}/assign", async (int id, AssignRequest req, TaskService s, CancellationToken ct) => Results.Ok(await s.AssignAsync(id, req, ct)));
+        api.MapPost("/tasks/{id:int}/ask-user", async (int id, AskUserRequest req, TaskService s, CancellationToken ct) => Results.Ok(await s.AskUser(id, req, ct)));
 
         api.MapPost("/tasks/{id:int}/claim", async (int id, TaskService s, CancellationToken ct) => Results.Ok(await s.ClaimAsync(id, ct)));
         api.MapPost("/tasks/{id:int}/renew", async (int id, TaskService s, CancellationToken ct) => Results.Ok(await s.RenewClaimAsync(id, ct)));

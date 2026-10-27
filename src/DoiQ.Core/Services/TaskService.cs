@@ -283,6 +283,7 @@ public sealed class TaskService(
         var source = EnumInput.Require(req.Source ?? TaskSource.Manual, "source");
         var (assigneeId, pool) = await ResolveAssigneeAsync(req.Assignee, allowPool: true, ct);
         var actors = await ActorsAsync(ct);
+        if (HandsToAgents(me, status, assigneeId, pool)) status = BoardStatus.Waiting;
         var forUser = assigneeId is { } aid && actors.GetValueOrDefault(aid)?.Kind == ActorKind.Human;
         if (me.IsAgent && status is BoardStatus.Doing or BoardStatus.Done && assigneeId != me.Id && !forUser)
             throw new ForbiddenException("Agents may only create tasks in Doing or Done when assigned to themselves or to the user.");
@@ -393,6 +394,9 @@ public sealed class TaskService(
             var forUser = AssignedToHuman(t);
             if (req.Status == BoardStatus.Done && t.AssigneeId != me.Id && !forUser)
                 throw new ForbiddenException("Agents can only move tasks assigned to them or to the user to Done. Claim a pool task and move it to Doing first.");
+            // Done is always reached through Doing, even when the work itself takes no time.
+            if (req.Status == BoardStatus.Done && from is not (BoardStatus.Doing or BoardStatus.Done))
+                throw new ForbiddenException($"Agents move a task to Done only from Doing, and this one is in {from}. Move it to Doing, do the work, then move it to Done.");
             if (req.Status == BoardStatus.Doing && !forUser)
             {
                 var holdsClaim = t.ClaimedById == me.Id && ClaimLive(t, now);
@@ -430,6 +434,12 @@ public sealed class TaskService(
         EnsureCanWrite(t, me);
         var (assigneeId, pool) = await ResolveAssigneeAsync(req.Assignee, allowPool: true, ct);
         var before = DescribeAssignee(await ActorsAsync(ct), t);
+        if (HandsToAgents(me, t.Status, assigneeId, pool))
+        {
+            t.Status = BoardStatus.Waiting;
+            t.SortOrder = await ComputeSortOrderAsync(t.BoardId, BoardStatus.Waiting, t.Id, null, null, ct);
+            Record(t, EventType.Moved, new { from = BoardStatus.New.ToString(), to = BoardStatus.Waiting.ToString() });
+        }
         t.AssigneeId = assigneeId;
         t.AssignedToPool = pool;
         t.ClaimedById = null;
@@ -440,6 +450,67 @@ public sealed class TaskService(
         var ev = Record(t, EventType.Assigned, new { from = before, to = after });
         await PlanWakeupsAsync(ev, t, me, [], ct);
         await CommitAsync(ct);
+        After(() => PublishChangedAsync(ev, t));
+        await RunAfterAsync();
+        return (await ProjectAsync([t], me, ct))[0];
+    }
+
+    /// <summary>
+    /// An agent needs something from the user before it can go on: its question goes into the thread, the task is
+    /// assigned to the user and waits in Waiting for them. One commit, so the board never shows half of it.
+    /// </summary>
+    public async Task<TaskSummaryDto> AskUser(int taskId, AskUserRequest req, CancellationToken ct)
+    {
+        var me = Me;
+        if (!me.IsAgent) throw new ForbiddenException("Only agents ask the user. Assign the task instead.");
+        var question = req.Question?.Trim();
+        if (string.IsNullOrEmpty(question)) throw new ValidationException("question is required: say what you need from the user.");
+        var t = await LoadAsync(taskId, null, ct);
+        EnsureCanWrite(t, me);
+        if (await FindKeyAsync("comment", req.RequestKey, ct) is not null) return (await ProjectAsync([t], me, ct))[0];
+        var actors = await ActorsAsync(ct);
+        var user = actors.Values.Where(a => a.Kind == ActorKind.Human && a.IsActive).OrderBy(a => a.Id).FirstOrDefault()
+            ?? throw new ValidationException("There is no user to ask.");
+
+        var now = Now;
+        var c = new Comment { TaskId = taskId, AuthorId = me.Id, Body = question, CreatedAt = now };
+        db.Comments.Add(c);
+        var asked = Record(t, EventType.CommentAdded, new { commentId = 0 });
+        var from = t.Status;
+        if (from != BoardStatus.Waiting)
+        {
+            t.Status = BoardStatus.Waiting;
+            t.DoneAt = null;
+            t.SortOrder = await ComputeSortOrderAsync(t.BoardId, BoardStatus.Waiting, t.Id, null, null, ct);
+            Record(t, EventType.Moved, new { from = from.ToString(), to = BoardStatus.Waiting.ToString() });
+        }
+        var before = DescribeAssignee(actors, t);
+        t.AssigneeId = user.Id;
+        t.AssignedToPool = false;
+        t.ClaimedById = null;
+        t.ClaimExpiresAt = null;
+        t.UpdatedAt = now;
+        t.Version++;
+        var ev = Record(t, EventType.Assigned, new { from = before, to = user.Name });
+        await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} needs your input: {t.Title}", ct);
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        try
+        {
+            await CommitAsync(ct, tx, beforeCommit: async () =>
+            {
+                asked.PayloadJson = JsonSerializer.Serialize(new { commentId = c.Id });
+                RememberKey("comment", req.RequestKey, c.Id);
+                await db.SaveChangesAsync(ct);
+            });
+        }
+        catch (DbUpdateException) when (!string.IsNullOrWhiteSpace(req.RequestKey))
+        {
+            if (await RecoverKeyRace("comment", req.RequestKey, tx, ct) is null) throw;
+            return (await ProjectAsync([await LoadAsync(taskId, null, ct)], me, ct))[0];
+        }
+        var dto = ToDto(c, actors, asked.Id);
+        After(() => broadcaster.CommentAddedAsync(new CommentAddedMessage(asked.Id, me.Id, me.Kind, taskId, dto, t.BoardId)));
         After(() => PublishChangedAsync(ev, t));
         await RunAfterAsync();
         return (await ProjectAsync([t], me, ct))[0];
@@ -870,6 +941,14 @@ public sealed class TaskService(
 
     private async Task<Board> ResolveBoardAsync(int? id, string? name, CancellationToken ct) =>
         BoardResolver.Pick((await BoardsAsync(ct)).Values.OrderBy(b => b.Id).ToList(), id, name);
+
+    /// <summary>
+    /// The user giving a New task to an agent or the pool: it now belongs to the agents and is ready for them, so it goes
+    /// to Waiting. An agent assigning (the triage agent passing work on) leaves the lane alone.
+    /// </summary>
+    private bool HandsToAgents(ActorInfo me, BoardStatus status, int? assigneeId, bool pool) =>
+        me.IsHuman && status == BoardStatus.New
+        && (pool || assigneeId is { } a && _actors?.GetValueOrDefault(a)?.Kind == ActorKind.Agent);
 
     private bool AssignedToHuman(TaskItem t) => t.AssigneeId is { } a && _actors?.GetValueOrDefault(a)?.Kind == ActorKind.Human;
 

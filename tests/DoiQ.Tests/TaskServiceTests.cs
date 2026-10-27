@@ -170,7 +170,7 @@ public class PermissionTests
     {
         // Arrange
         using var h = new Harness();
-        var id = await h.CreateAsync(h.User, "mine", assignee: "User");
+        var id = await h.CreateAsync(h.User, "mine", BoardStatus.Doing, "User");
 
         // Act
         var moved = await h.AsHermes().Move(id, new MoveTaskRequest(target));
@@ -1286,5 +1286,233 @@ public class QueryTests
         Assert.Equal(3, detail.Task.SubtaskTotal);
         Assert.Equal(1, detail.Task.SubtaskDone);
         Assert.NotNull(detail.Subtasks.Single(s => s.Id == one.Id).DoneAt);
+    }
+}
+
+public class HandOverTests
+{
+    [Theory]
+    [InlineData("Hermes")]
+    [InlineData("any")]
+    public async Task AssignAsync_UserGivesNewTaskToAgents_MovesItToWaiting(string assignee)
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "for the agents");
+
+        // Act
+        var assigned = await h.AsUser().AssignAsync(id, new AssignRequest(assignee), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Waiting, assigned.Status);
+    }
+
+    [Fact]
+    public async Task AssignAsync_UserGivesNewTaskToAgent_RecordsTheMoveBeforeTheAssignment()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "for Hermes");
+
+        // Act
+        await h.AsUser().AssignAsync(id, new AssignRequest("Hermes"), h.Ct);
+
+        // Assert
+        await using var db = h.NewDb();
+        var types = await db.Events.Where(e => e.TaskId == id).OrderBy(e => e.Id).Select(e => e.Type).ToListAsync(h.Ct);
+        Assert.Equal([EventType.Created, EventType.Moved, EventType.Assigned], types);
+    }
+
+    [Fact]
+    public async Task AssignAsync_UserTakesNewTask_LeavesItInNew()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "mine");
+
+        // Act
+        var assigned = await h.AsUser().AssignAsync(id, new AssignRequest("User"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.New, assigned.Status);
+    }
+
+    [Fact]
+    public async Task AssignAsync_UserGivesDoingTaskToAgent_LeavesItInDoing()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "started", BoardStatus.Doing);
+
+        // Act
+        var assigned = await h.AsUser().AssignAsync(id, new AssignRequest("Hermes"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Doing, assigned.Status);
+    }
+
+    [Fact]
+    public async Task AssignAsync_TriageAgentPassesNewTaskToAnotherAgent_LeavesItInNew()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "untriaged");
+
+        // Act
+        var assigned = await h.AsHermes().AssignAsync(id, new AssignRequest("Odin"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.New, assigned.Status);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UserAssignsNewTaskToAgent_CreatesItInWaiting()
+    {
+        // Arrange
+        using var h = new Harness();
+
+        // Act
+        var created = await h.AsUser().Create(new CreateTaskRequest("for Odin", Assignee: "Odin"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Waiting, created.Task.Task.Status);
+    }
+
+    [Theory]
+    [InlineData(BoardStatus.New)]
+    [InlineData(BoardStatus.Waiting)]
+    public async Task MoveAsync_AgentSkipsDoing_ThrowsForbidden(BoardStatus from)
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "skip", from, "Hermes");
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => h.AsHermes().Move(id, new MoveTaskRequest(BoardStatus.Done), h.Ct));
+
+        // Assert
+        Assert.Contains("only from Doing", Assert.IsType<ForbiddenException>(ex).Message);
+    }
+
+    [Fact]
+    public async Task MoveAsync_UserFromWaitingToDone_MovesIt()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "quick", BoardStatus.Waiting, "User");
+
+        // Act
+        var moved = await h.AsUser().Move(id, new MoveTaskRequest(BoardStatus.Done), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Done, moved.Status);
+    }
+
+    [Fact]
+    public async Task AskUser_ByAgentOnItsTask_PostsTheQuestionAndHandsTheTaskToTheUser()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "book a table", assignee: "Hermes");
+
+        // Act
+        var asked = await h.AsHermes().AskUser(id, new AskUserRequest("Which evening, and for how many?"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Waiting, asked.Status);
+        Assert.Equal(h.User.Id, asked.AssigneeId);
+        var detail = await h.AsUser().GetAsync(id, h.Ct);
+        var comment = Assert.Single(detail.Comments);
+        Assert.Equal("Which evening, and for how many?", comment.Body);
+        Assert.Equal("Hermes", comment.Author);
+        Assert.True(detail.Task.NeedsMe);
+    }
+
+    [Fact]
+    public async Task AskUser_ByAgent_QueuesANotifyThatSaysItNeedsInput()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "book a table", assignee: "Hermes");
+
+        // Act
+        await h.AsHermes().AskUser(id, new AskUserRequest("Which evening?"), h.Ct);
+
+        // Assert
+        await using var db = h.NewDb();
+        var row = await db.Outbox.SingleAsync(o => o.Kind == OutboxKind.Notify, h.Ct);
+        Assert.Equal(h.Hermes.Id, row.TargetActorId);
+        Assert.Equal("Hermes needs your input: book a table", row.PayloadJson);
+    }
+
+    [Fact]
+    public async Task AskUser_OnTaskInDoing_MovesItBackToWaiting()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "started", BoardStatus.Doing, "Hermes");
+
+        // Act
+        var asked = await h.AsHermes().AskUser(id, new AskUserRequest("Stuck: which account?"), h.Ct);
+
+        // Assert
+        Assert.Equal(BoardStatus.Waiting, asked.Status);
+    }
+
+    [Fact]
+    public async Task AskUser_WithTheSameRequestKeyTwice_PostsOneComment()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "retry", assignee: "Hermes");
+        await h.AsHermes().AskUser(id, new AskUserRequest("Which one?", "k1"), h.Ct);
+
+        // Act
+        await h.AsHermes().AskUser(id, new AskUserRequest("Which one?", "k1"), h.Ct);
+
+        // Assert
+        Assert.Single((await h.AsUser().GetAsync(id, h.Ct)).Comments);
+    }
+
+    [Fact]
+    public async Task AskUser_OnAnotherAgentsTask_ThrowsForbidden()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "Odin's", assignee: "Odin");
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => h.AsHermes().AskUser(id, new AskUserRequest("Mine now?"), h.Ct));
+
+        // Assert
+        Assert.IsType<ForbiddenException>(ex);
+    }
+
+    [Fact]
+    public async Task AskUser_ByUser_ThrowsForbidden()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "mine");
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => h.AsUser().AskUser(id, new AskUserRequest("Me?"), h.Ct));
+
+        // Assert
+        Assert.IsType<ForbiddenException>(ex);
+    }
+
+    [Fact]
+    public async Task AskUser_WithoutAQuestion_ThrowsValidation()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "x", assignee: "Hermes");
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => h.AsHermes().AskUser(id, new AskUserRequest("  "), h.Ct));
+
+        // Assert
+        Assert.IsType<ValidationException>(ex);
     }
 }

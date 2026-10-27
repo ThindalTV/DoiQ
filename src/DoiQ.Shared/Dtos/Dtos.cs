@@ -121,6 +121,9 @@ public sealed record FieldRequest(string Label, string Value);
 
 public sealed record AddCommentRequest(string Body, string? RequestKey = null);
 
+/// <summary>An agent hands a task back to the user: Question says what it needs from them.</summary>
+public sealed record AskUserRequest(string? Question, string? RequestKey = null);
+
 public sealed record SeenRequest(long? ThroughEventId = null);
 
 public sealed record AddSubtaskRequest(string Title, string? Assignee = null, int? BeforeId = null, int? AfterId = null, string? RequestKey = null);
