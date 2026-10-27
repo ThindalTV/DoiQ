@@ -297,10 +297,11 @@ select { height: 36px; }
 .card-title { display: flex; gap: 8px; align-items: flex-start; }
 .card-title span.t { flex: 1; font-size: 14px; line-height: 1.4; font-weight: 500; }
 .unread-dot { flex: none; width: 8px; height: 8px; margin-top: 6px; background: var(--lilac); border-radius: 50%; }
-.card-meta { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-muted); }
+/* Wraps when crowded (two dates plus counters), but never inside an item: a date stays on one line. */
+.card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; font-size: 12px; color: var(--ink-muted); }
 .card-meta .who { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); }
-.card-meta .icons { margin-left: auto; display: inline-flex; align-items: center; gap: 12px; }
-.card-meta .icons > span { display: inline-flex; align-items: center; gap: 4px; }
+.card-meta .icons { margin-left: auto; display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px 12px; }
+.card-meta .icons > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .card-meta .overdue { color: var(--lilac); font-weight: 600; }
 .card-meta .unassigned { display: inline-flex; align-items: center; gap: 6px; }
 

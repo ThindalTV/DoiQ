@@ -301,7 +301,8 @@ public sealed class TaskService(
             CreatedAt = now,
             UpdatedAt = now,
             DoneAt = status == BoardStatus.Done ? now : null,
-            SortOrder = await BottomOrderAsync(board.Id, status, ct),
+            // An agent's new task is top priority, at the top of its lane; the user's goes to the bottom.
+            SortOrder = me.IsAgent ? await TopOrderAsync(board.Id, status, ct) : await BottomOrderAsync(board.Id, status, ct),
             Source = source,
             SourceRef = sourceRef,
             LastActivityAt = now,
@@ -916,6 +917,12 @@ public sealed class TaskService(
     {
         var min = await db.Tasks.IgnoreQueryFilters().Where(t => t.BoardId == boardId && t.Status == status).Select(t => (double?)t.SortOrder).MinAsync(ct);
         return min is null ? 0 : min.Value - 1;
+    }
+
+    private async Task<double> TopOrderAsync(int boardId, BoardStatus status, CancellationToken ct)
+    {
+        var max = await db.Tasks.IgnoreQueryFilters().Where(t => t.BoardId == boardId && t.Status == status).Select(t => (double?)t.SortOrder).MaxAsync(ct);
+        return max is null ? 0 : max.Value + 1;
     }
 
     private async Task<double> ComputeSortOrderAsync(int boardId, BoardStatus status, int selfId, int? before, int? after, CancellationToken ct)

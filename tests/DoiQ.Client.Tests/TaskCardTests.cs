@@ -86,7 +86,7 @@ public sealed class TaskCardTests : ClientTestBase
     }
 
     [Fact]
-    public void TaskCard_WithADueDate_ShowsTheShortDate()
+    public void TaskCard_WithADueDate_ShowsItAsIsoDate()
     {
         // Arrange
         var task = Tasks.Make(due: new DateOnly(2099, 10, 27));
@@ -95,8 +95,22 @@ public sealed class TaskCardTests : ClientTestBase
         var cut = Card(task);
 
         // Assert
-        Assert.Contains("Oct 27", cut.Find(".icons").TextContent);
+        Assert.Contains("2099-10-27", cut.Find(".due").TextContent);
         Assert.Empty(cut.FindAll(".overdue"));
+    }
+
+    [Fact]
+    public void TaskCard_Always_ShowsTheCreatedDateAsIsoDate()
+    {
+        // Arrange
+        var task = Tasks.Make();
+
+        // Act
+        var cut = Card(task);
+
+        // Assert
+        Assert.Contains(Tasks.Now.LocalDateTime.ToString("yyyy-MM-dd"), cut.Find(".created").TextContent);
+        Assert.Empty(cut.FindAll(".due"));
     }
 
     [Fact]
@@ -109,7 +123,7 @@ public sealed class TaskCardTests : ClientTestBase
         var cut = Card(task);
 
         // Assert
-        Assert.Contains("Jan 2", cut.Find(".overdue").TextContent);
+        Assert.Contains("2020-01-02", cut.Find(".overdue").TextContent);
     }
 
     [Fact]
@@ -149,7 +163,7 @@ public sealed class TaskCardTests : ClientTestBase
         var cut = Card(task);
 
         // Assert
-        Assert.Empty(cut.Find(".icons").Children);
+        Assert.Equal(["created"], cut.Find(".icons").Children.Select(c => c.ClassName));   // only the created date
     }
 
     [Fact]

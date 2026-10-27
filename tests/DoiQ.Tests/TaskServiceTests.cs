@@ -24,6 +24,22 @@ public class MoveTests
     }
 
     [Fact]
+    public async Task CreateAsync_ByAnAgent_ListsItAtTheTopOfTheLane()
+    {
+        // Arrange
+        using var h = new Harness();
+        await h.CreateAsync(h.User, "A");
+        await h.CreateAsync(h.User, "B");
+
+        // Act
+        await h.AsHermes().Create(new CreateTaskRequest("From agent"));
+
+        // Assert
+        var list = await h.AsUser().List(new TaskQuery { Sort = "lane" }, h.Ct);
+        Assert.Equal(["From agent", "A", "B"], list.Select(t => t.Title));
+    }
+
+    [Fact]
     public async Task MoveAsync_BeforeTaskId_PlacesCardDirectlyAboveThatCard()
     {
         // Arrange

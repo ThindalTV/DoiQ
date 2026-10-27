@@ -26,9 +26,10 @@
             {
                 <span><Icon Name="mail" Size="14" /><span class="sr">From email</span></span>
             }
+            <span class="created" title="Created"><Icon Name="clock" /><span class="sr">Created</span>@Fmt.Iso(Task.CreatedAt)</span>
             @if (Task.Due is DateOnly due)
             {
-                <span class="@(due < DateOnly.FromDateTime(DateTime.Today) && Task.Lane != BoardLane.Done ? "overdue" : "")"><Icon Name="calendar" /><span class="sr">Due</span>@Fmt.Due(due)</span>
+                <span class="due @(due < DateOnly.FromDateTime(DateTime.Today) && Task.Lane != BoardLane.Done ? "overdue" : "")" title="Due by"><Icon Name="calendar" /><span class="sr">Due by</span>@Fmt.Iso(due)</span>
             }
             @if (Task.SubtaskCount > 0)
             {

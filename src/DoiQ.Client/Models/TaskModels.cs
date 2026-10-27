@@ -152,6 +152,12 @@ public static class Fmt
 
     public static string Due(DateOnly d) => d.ToString("MMM d", Inv);
 
+    /// <summary>yyyy-MM-dd, as on a card.</summary>
+    public static string Iso(DateOnly d) => d.ToString("yyyy-MM-dd", Inv);
+
+    /// <summary>The local day, yyyy-MM-dd.</summary>
+    public static string Iso(DateTimeOffset t) => t.LocalDateTime.ToString("yyyy-MM-dd", Inv);
+
     /// <summary>A date with the year when it is not this year ("Mar 4", "Mar 4 2025").</summary>
     public static string Day(DateTimeOffset t) =>
         t.LocalDateTime.Year == DateTime.Today.Year ? t.LocalDateTime.ToString("MMM d", Inv) : t.LocalDateTime.ToString("MMM d yyyy", Inv);
