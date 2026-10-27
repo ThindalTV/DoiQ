@@ -378,7 +378,8 @@ public sealed class TaskService(
         const string brief = """
             The user is setting up who does what on DoiQ and wants to know what you take care of.
 
-            1. Write a few sentences on your responsibilities: what you do, what you are good at, and what you leave to others.
+            1. Write a few sentences on your responsibilities: what you do and what you are good at. Describe only what you do:
+               leave out what you cannot do, and do not compare yourself with other agents, including agents that run in the same runner as you.
             2. Save them with `set_my_responsibilities` (REST: `PUT /api/me/responsibilities` with `{ "responsibilities": "..." }`). This replaces what is there.
             3. Move this task to Doing, then to Done.
 
