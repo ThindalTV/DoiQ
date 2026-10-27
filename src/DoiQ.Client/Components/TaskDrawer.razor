@@ -124,7 +124,7 @@
                     </li>
                 }
                 <li class="add">
-                    <Icon Name="plus" Size="12" Stroke="#a99bc6" />
+                    <Icon Name="plus" Size="12" Stroke="var(--ink-muted)" />
                     <label for="st-new" class="sr">Add a subtask</label>
                     <input id="st-new" type="text" placeholder="Add a subtask (S), Enter to save" @bind="_newSub" @bind:event="oninput" @onkeydown="SubKey" />
                 </li>
@@ -134,7 +134,7 @@
         <section class="sec" style="gap:10px" aria-labelledby="info-h">
             <div class="sec-head">
                 <h3 id="info-h">Info</h3>
-                <button type="button" class="btn btn-sm right" @onclick="() => StartField(null)"><Icon Name="plus" Size="10" Stroke="#e7ddf6" />Add field</button>
+                <button type="button" class="btn btn-sm right" @onclick="() => StartField(null)"><Icon Name="plus" Size="10" Stroke="var(--ink)" />Add field</button>
             </div>
 
             @foreach (var f in Task.Fields)

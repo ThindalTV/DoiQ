@@ -10,6 +10,10 @@
     <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
     <link rel="apple-touch-icon" href="icon-192.png" />
     <meta name="theme-color" content="#16043e" />
+    <!-- Apply the theme picked in Settings before anything paints, so a light choice doesn't flash dark. -->
+    <script>
+        try { const t = localStorage.getItem('doiq.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch { }
+    </script>
     <link rel="preload" id="webassembly" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Antonio:wght@200;300;400&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" />

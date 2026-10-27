@@ -10,7 +10,7 @@
     @if (QuickAdd)
     {
         <label class="quick-add">
-            <Icon Name="plus" Size="12" Stroke="#a99bc6" />
+            <Icon Name="plus" Size="12" Stroke="var(--ink-muted)" />
             <span class="sr">Add a task to New</span>
             <input type="text" @ref="_input" id="quick-add" placeholder="Add a task, press Enter" @bind="_newTitle" @bind:event="oninput" @onkeydown="OnKey" />
         </label>

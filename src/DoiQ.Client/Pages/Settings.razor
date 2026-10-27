@@ -79,7 +79,7 @@
                 <h3 id="agents-h">Agents</h3>
                 @if (!_adding)
                 {
-                    <button type="button" class="btn btn-sm right" @onclick="() => { _adding = true; _editId = null; }"><Icon Name="plus" Size="10" Stroke="#e7ddf6" />Add agent</button>
+                    <button type="button" class="btn btn-sm right" @onclick="() => { _adding = true; _editId = null; }"><Icon Name="plus" Size="10" Stroke="var(--ink)" />Add agent</button>
                 }
             </div>
 
@@ -142,6 +142,17 @@
             }
         </section>
 
+        <section class="card-section" aria-labelledby="theme-h">
+            <div class="sec-head"><h3 id="theme-h">Appearance</h3></div>
+            <div role="group" aria-labelledby="theme-h" class="seg theme-seg">
+                @foreach (var (value, label) in Themes)
+                {
+                    <button type="button" aria-pressed="@Aria.Bool(_theme == value)" @onclick="() => SetTheme(value)">@label</button>
+                }
+            </div>
+            <p class="muted board-note">System follows your device's light or dark setting. The choice is kept in this browser.</p>
+        </section>
+
         <section class="card-section" aria-labelledby="conn-h">
             <div class="sec-head"><h3 id="conn-h">Connect an agent</h3></div>
             <dl class="agent-facts">
@@ -187,6 +198,10 @@
     private string? _error, _pwError;
     private string _cur = "", _new = "", _conf = "";
     private DotNetObjectReference<Settings>? _self;
+    private readonly CancellationTokenSource _cts = new();
+
+    private static readonly (string Value, string Label)[] Themes = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
+    private string _theme = "system";
 
     private IReadOnlyList<BoardDto>? _boards;
     private string _newBoard = "", _renameName = "";
@@ -210,6 +225,8 @@
         if (firstRender)
         {
             _self = DotNetObjectReference.Create(this);
+            _theme = await JS.InvokeAsync<string>("doiq.theme", _cts.Token);
+            StateHasChanged();
             await JS.InvokeVoidAsync("doiq.init", _self, "settings");
             if (Nav.Uri.EndsWith("#boards", StringComparison.Ordinal)) await JS.InvokeVoidAsync("doiq.scrollTo", "#boards");   // "Manage boards" link
         }
@@ -224,8 +241,16 @@
         else if (_deleting is null) Nav.NavigateTo("");
     }
 
+    private async Task SetTheme(string theme)
+    {
+        _theme = theme;
+        await JS.InvokeVoidAsync("doiq.setTheme", _cts.Token, theme);
+    }
+
     public async ValueTask DisposeAsync()
     {
+        _cts.Cancel();
+        _cts.Dispose();
         try { await JS.InvokeVoidAsync("doiq.dispose", "settings"); } catch { /* page already gone */ }
         _self?.Dispose();
     }

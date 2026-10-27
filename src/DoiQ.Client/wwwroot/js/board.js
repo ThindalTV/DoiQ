@@ -61,6 +61,17 @@ window.doiq = {
         if (el) el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     },
 
+    // Theme picked in this browser: 'light', 'dark' or 'system' (follow the OS). Stored like the last board.
+    theme() {
+        try { const t = localStorage.getItem('doiq.theme'); return t === 'light' || t === 'dark' ? t : 'system'; } catch { return 'system'; }
+    },
+
+    setTheme(theme) {
+        const root = document.documentElement;
+        if (theme === 'light' || theme === 'dark') root.dataset.theme = theme; else delete root.dataset.theme;
+        try { if (root.dataset.theme) localStorage.setItem('doiq.theme', theme); else localStorage.removeItem('doiq.theme'); } catch { /* private mode: not remembered */ }
+    },
+
     // The board shown last in this browser (localStorage can be blocked; then there is simply none).
     lastBoard() {
         try { return parseInt(localStorage.getItem('doiq.board') || '0', 10) || 0; } catch { return 0; }

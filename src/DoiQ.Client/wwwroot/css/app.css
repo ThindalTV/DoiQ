@@ -1,5 +1,6 @@
-/* DoiQ, Thindal theme (dark). Tokens from the design canvas's ds/thindal/tokens.json. */
+/* DoiQ, Thindal theme. Dark by default, light below. Tokens from the design canvas's ds/thindal/tokens.json. */
 :root {
+    color-scheme: dark;
     --void: #09021a;
     --midnight: #16043e;
     --indigo: #24075d;
@@ -13,6 +14,7 @@
     --surface: var(--void);
     --surface-raised: var(--midnight);
     --surface-strong: var(--indigo);
+    --surface-hover: #2e0b72;
     --ink: var(--lavender);
     --ink-muted: #a99bc6;
     --accent-text: var(--lilac);
@@ -28,17 +30,91 @@
     --lane-done: #5fdc94;
     --danger: #ff7b7b;
     --danger-bg: #5b1a28;
+    --on-danger-bg: #ffd0d0;
     --unread: #ff7ad9;
     --who-user: #ffc48a;
     --who-agent: #3fcfb4;
+    --on-who-user: #2a1500;
+    --on-who-agent: #00281f;
+    --on-unread: #2a0020;
     --ok: #5fdc94;
     --warn: #ffb84d;
 
     --shadow-glow: 0 0 24px rgba(127, 53, 193, 0.45);
+    --scrim: rgba(9, 2, 26, 0.72);
 
     --font-display: Antonio, "Arial Narrow", sans-serif;
     --font-sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
     --font-mono: "JetBrains Mono", Consolas, ui-monospace, monospace;
+}
+
+/* Light: the same roles on pale lavender. The raw palette is remapped so rules that name it directly still pair up.
+   It follows the system unless the choice in Settings sets data-theme on <html>; keep the two blocks the same. */
+:root[data-theme="light"] {
+    color-scheme: light;
+    --void: #f6f2fc;
+    --midnight: #ece4f7;
+    --indigo: #ffffff;
+    --violet: #d6c8ec;
+    --lavender: #1e0a3c;
+    --lavender-deep: #3a2560;
+    --lilac: #6a2bb0;
+
+    --surface-hover: #f1e9fb;
+    --ink-muted: #5c4d78;
+    --border-strong: #9a80c6;
+    --lane-new: #0b7a87;
+    --lane-waiting: #9a5800;
+    --lane-doing: #2d5bc9;
+    --lane-done: #1b8047;
+    --danger: #c0283a;
+    --danger-bg: #fde4e7;
+    --on-danger-bg: #8f1426;
+    --unread: #b8248a;
+    --who-user: #b0561a;
+    --who-agent: #0d7a68;
+    --on-who-user: #ffffff;
+    --on-who-agent: #ffffff;
+    --on-unread: #ffffff;
+    --ok: #1b8047;
+    --warn: #9a5800;
+
+    --shadow-glow: 0 4px 24px rgba(98, 32, 161, 0.22);
+    --scrim: rgba(30, 10, 60, 0.38);
+}
+@media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+        color-scheme: light;
+        --void: #f6f2fc;
+        --midnight: #ece4f7;
+        --indigo: #ffffff;
+        --violet: #d6c8ec;
+        --lavender: #1e0a3c;
+        --lavender-deep: #3a2560;
+        --lilac: #6a2bb0;
+
+        --surface-hover: #f1e9fb;
+        --ink-muted: #5c4d78;
+        --border-strong: #9a80c6;
+        --lane-new: #0b7a87;
+        --lane-waiting: #9a5800;
+        --lane-doing: #2d5bc9;
+        --lane-done: #1b8047;
+        --danger: #c0283a;
+        --danger-bg: #fde4e7;
+        --on-danger-bg: #8f1426;
+        --unread: #b8248a;
+        --who-user: #b0561a;
+        --who-agent: #0d7a68;
+        --on-who-user: #ffffff;
+        --on-who-agent: #ffffff;
+        --on-unread: #ffffff;
+        --ok: #1b8047;
+        --warn: #9a5800;
+
+        --shadow-glow: 0 4px 24px rgba(98, 32, 161, 0.22);
+        --scrim: rgba(30, 10, 60, 0.38);
+    }
 }
 
 * { box-sizing: border-box; }
@@ -181,7 +257,7 @@ kbd { font-family: var(--font-mono); }
 .btn[aria-pressed="true"] { background: var(--surface-strong); border-color: var(--lilac); }
 
 .select-label { display: flex; align-items: center; gap: 8px; color: var(--ink-muted); }
-select, input[type="date"], input[type="text"].field, textarea.field {
+select, input[type="date"], input.field, textarea.field {
     height: 34px; padding: 0 8px; background: var(--surface-raised); border: 1px solid var(--border-strong); border-radius: 2px;
 }
 select { height: 36px; }
@@ -214,7 +290,7 @@ select { height: 36px; }
     display: flex; flex-direction: column; gap: 10px; padding: 12px; cursor: pointer;
     background: var(--surface-strong); border: 1px solid var(--border); border-radius: 4px; color: var(--ink);
 }
-.card:hover { background: #2e0b72; }
+.card:hover { background: var(--surface-hover); }
 .card.is-focused { outline: 2px solid var(--lilac); outline-offset: 2px; }
 .card.is-dragging { opacity: 0.45; border-style: dashed; }
 .card.is-archived { opacity: 0.6; }
@@ -252,7 +328,7 @@ select { height: 36px; }
     width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 10px 12px; text-align: left; cursor: pointer;
     background: var(--surface-strong); border: 1px solid var(--border); border-radius: 4px; color: var(--ink);
 }
-.archive-item:hover { background: #2e0b72; }
+.archive-item:hover { background: var(--surface-hover); }
 .archive-item .t { flex: 1 1 260px; min-width: 0; font-size: 14px; font-weight: 500; overflow-wrap: anywhere; }
 .archive-item .meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-muted); }
 .archive-item .meta > span { display: inline-flex; align-items: center; gap: 4px; }
@@ -288,7 +364,7 @@ select { height: 36px; }
 .av-lg { width: 28px; height: 28px; min-width: 28px; font-size: 12px; }
 
 /* ---- drawer ---- */
-.scrim { position: fixed; inset: 0; background: rgba(9, 2, 26, 0.72); z-index: 40; }
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 40; }
 .drawer {
     position: fixed; top: 0; right: 0; bottom: 0; width: 640px; max-width: 100%; z-index: 41;
     display: flex; flex-direction: column; background: var(--surface-raised);
@@ -308,7 +384,7 @@ select { height: 36px; }
 .title-input:hover, .title-input:focus { border-bottom-color: var(--border-strong); }
 .props { display: grid; grid-template-columns: 96px 1fr; gap: 12px 16px; align-items: center; }
 .props .k { color: var(--ink-muted); }
-.props select, .props input[type="date"] { width: 200px; background: var(--surface); color-scheme: dark; height: 34px; }
+.props select, .props input[type="date"] { width: 200px; background: var(--surface); height: 34px; }
 .props .src { display: inline-flex; align-items: center; gap: 8px; }
 
 .sec { display: flex; flex-direction: column; gap: 8px; }
@@ -430,7 +506,7 @@ a.btn { text-decoration: none; }
 .auth-card .btn { align-self: flex-start; margin-top: 8px; }
 .form-error { margin: 0; color: #ffb3c7; }
 .form-error::before { content: "Error: "; font-weight: 600; }
-.form-ok { margin: 0; color: #8eeeaf; }
+.form-ok { margin: 0; color: var(--ok); }
 
 .page-title { margin: 0 0 0 8px; font-family: var(--font-display); font-weight: 300; font-size: 20px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-muted); }
 .settings { flex: 1; width: 860px; max-width: 100%; margin: 0 auto; padding: 24px; display: flex; flex-direction: column; gap: 28px; }
@@ -509,22 +585,22 @@ code { font-family: var(--font-mono); font-size: 13px; }
 .card.is-focused { outline-color: var(--lane, var(--lilac)); }
 
 /* who: people warm, agents teal, the pool dashed teal */
-.av-user { background: var(--who-user); color: #2a1500; }
-.av-agent { background: var(--who-agent); color: #00281f; box-shadow: none; }
+.av-user { background: var(--who-user); color: var(--on-who-user); }
+.av-agent { background: var(--who-agent); color: var(--on-who-agent); box-shadow: none; }
 .av-pool { border: 1px dashed var(--who-agent); color: var(--who-agent); }
 .card-meta .unassigned { color: var(--warn); }
 .card-meta .unassigned .av-none { border-color: var(--warn); }
 
 /* attention */
 .unread-dot { background: var(--unread); box-shadow: 0 0 8px var(--unread); }
-.badge-new { background: var(--unread); color: #2a0020; }
-.comment .head .badge-new { color: #2a0020; }
+.badge-new { background: var(--unread); color: var(--on-unread); }
+.comment .head .badge-new { color: var(--on-unread); }
 .new-sep { color: var(--unread); }
 .new-sep span { background: var(--unread); }
 .field-card.is-new { border-color: var(--unread); }
 .card-meta .overdue { color: var(--danger); }
 .card-meta .overdue .ic * { stroke: var(--danger); }
-.count-badge { background: var(--unread); color: #2a0020; }
+.count-badge { background: var(--unread); color: var(--on-unread); }
 
 /* icons by kind */
 .ic-calendar rect, .ic-calendar path { stroke: var(--warn); }
@@ -548,8 +624,18 @@ code { font-family: var(--font-mono); font-size: 13px; }
 .notice-info { border-color: var(--lane-new); }
 .form-error { color: var(--danger); }
 .btn-danger { border-color: var(--danger); color: var(--danger); }
-.btn-danger:hover { background: var(--danger-bg); color: #ffd0d0; }
+.btn-danger:hover { background: var(--danger-bg); color: var(--on-danger-bg); }
 .agent-card .status.on { color: var(--ok); border-color: var(--ok); }
 .stash { border-color: var(--warn); }
 .secret-panel { border-color: var(--warn); }
 .secret-panel .warn { color: var(--warn); }
+
+/* icon strokes and fills follow the theme; the kind colours above win over these */
+.s-muted { stroke: var(--ink-muted); }
+.s-ink { stroke: var(--ink); }
+.s-accent { stroke: var(--accent-text); }
+.f-new { fill: var(--lane-new); }
+.f-waiting { fill: var(--lane-waiting); }
+.f-doing { fill: var(--lane-doing); }
+.f-done { fill: var(--lane-done); }
+.theme-seg { width: fit-content; }
