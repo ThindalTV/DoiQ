@@ -12,7 +12,14 @@ namespace DoiQ.Client.Services;
 /// </summary>
 public static class SafeMarkdown
 {
-    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder().DisableHtml().UseAutoLinks().Build();
+    // Agents write GitHub-flavoured markdown, so tables, ~~strikethrough~~ and - [ ] task lists render too.
+    private static readonly MarkdownPipeline Pipeline = new MarkdownPipelineBuilder()
+        .DisableHtml()
+        .UseAutoLinks()
+        .UsePipeTables()
+        .UseEmphasisExtras(Markdig.Extensions.EmphasisExtras.EmphasisExtraOptions.Strikethrough)
+        .UseTaskLists()
+        .Build();
     private static readonly string[] AllowedSchemes = ["http", "https", "mailto"];
 
     public static MarkupString Render(string? text)

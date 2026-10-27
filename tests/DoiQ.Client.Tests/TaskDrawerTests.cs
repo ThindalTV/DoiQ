@@ -63,6 +63,21 @@ public sealed class TaskDrawerTests : ClientTestBase
     }
 
     [Fact]
+    public void TaskDrawer_Description_RendersPipeTables()
+    {
+        // Arrange
+        var task = Tasks.Make(description: "| Time | Voiceover |\n|---|---|\n| 0–5s | Intro |\n| 5–14s | **Join** |");
+
+        // Act
+        var cut = RenderDrawer(task);
+
+        // Assert
+        Assert.Equal(["Time", "Voiceover"], cut.FindAll(".md th").Select(th => th.TextContent));
+        Assert.Equal(2, cut.FindAll(".md tbody tr").Count);
+        Assert.Equal("Join", cut.Find(".md td strong").TextContent);
+    }
+
+    [Fact]
     public void TaskDrawer_Description_NeverRendersRawHtml()
     {
         // Arrange
