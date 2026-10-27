@@ -226,6 +226,24 @@ docker compose up -d
 
 (On Linux, keep the owner at uid 1654: `sudo chown 1654:1654 data/doiq.db`.)
 
+## Mobile and desktop app
+
+`src/DoiQ.App` is a .NET MAUI app for Windows, Android and iOS. It shows the same UI as the browser, from `src/DoiQ.Client.UI`, in a native window, and talks to a DoiQ server you choose on first start. Plain `http://` on the LAN works.
+
+- **Offline:** everything the app reads is cached on the device per server, in `DoiQ.App.Core`. If the server can't be reached, boards and tasks you opened before still show as they were last seen, with a banner saying so. Changes need a connection; nothing is queued.
+- **What it leaves to the web UI:** board and agent administration, agent connection details and the password change. Settings in the app has the theme and the server address.
+- **Notifications:** while the app runs in the background it notifies you about tasks that wait on you or mention you. These are local notifications driven by the live connection. There is no server push yet, so nothing arrives while the app is closed.
+
+Building needs the MAUI workloads (`dotnet workload restore src/DoiQ.App`), which is why the app is not in `DoiQ.slnx`. Build one platform at a time:
+
+```bash
+dotnet build src/DoiQ.App -p:AppPlatform=windows
+dotnet build src/DoiQ.App -p:AppPlatform=android
+dotnet build src/DoiQ.App -p:AppPlatform=ios
+```
+
+iOS needs a paired Mac.
+
 ## Local development
 
 ```bash
@@ -235,4 +253,4 @@ dotnet test
 
 Without configuration the database is created at `<output folder>/data/doiq.db`. To use another file set `ConnectionStrings__Db`, e.g. `ConnectionStrings__Db="Data Source=./doiq.db"`. The image sets this to `Data Source=/data/doiq.db`.
 
-Layout: `src/DoiQ.Shared` (DTOs), `src/DoiQ.Core` (logic, EF Core, migrations), `src/DoiQ.Server` (host), `src/DoiQ.Client` (Blazor WASM), `tests/DoiQ.Tests` (server), `tests/DoiQ.Client.Tests` (bUnit).
+Layout: `src/DoiQ.Shared` (DTOs), `src/DoiQ.Core` (logic, EF Core, migrations), `src/DoiQ.Server` (host), `src/DoiQ.Client.UI` (the UI: pages, components, services), `src/DoiQ.Client` (Blazor WASM host), `src/DoiQ.App` (MAUI app), `src/DoiQ.App.Core` (the app's offline cache and server settings), `tests/DoiQ.Tests` (server), `tests/DoiQ.Client.Tests` (bUnit), `tests/DoiQ.App.Tests` (app cache).

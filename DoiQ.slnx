@@ -1,12 +1,15 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/DoiQ.Client/DoiQ.Client.csproj" />
+    <Project Path="src/DoiQ.Client.UI/DoiQ.Client.UI.csproj" />
+    <Project Path="src/DoiQ.App.Core/DoiQ.App.Core.csproj" />
     <Project Path="src/DoiQ.Core/DoiQ.Core.csproj" />
     <Project Path="src/DoiQ.Server/DoiQ.Server.csproj" />
     <Project Path="src/DoiQ.Shared/DoiQ.Shared.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/DoiQ.Client.Tests/DoiQ.Client.Tests.csproj" />
+    <Project Path="tests/DoiQ.App.Tests/DoiQ.App.Tests.csproj" />
     <Project Path="tests/DoiQ.Tests/DoiQ.Tests.csproj" />
   </Folder>
 </Solution>

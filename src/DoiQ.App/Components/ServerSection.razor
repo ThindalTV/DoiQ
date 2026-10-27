@@ -1,0 +1,8 @@
+@inject ServerSettings Server
+
+@* Shown in Settings and under the sign-in form. Changing server starts the app over on the new one. *@
+<section class="card-section server-section" aria-labelledby="server-h">
+    <div class="sec-head"><h3 id="server-h">Server</h3></div>
+    <p class="muted board-note">Connected to <code>@Server.BaseUrl</code>. What you have opened is kept on this device, so it stays readable without a connection.</p>
+    <div class="form-actions"><button type="button" class="btn btn-sm" @onclick="Server.Clear">Change server</button></div>
+</section>

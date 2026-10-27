@@ -1,6 +1,7 @@
 @page "/login"
 @inject IDoiQApiClient Api
 @inject AuthState Auth
+@inject IServiceProvider Services
 
 <PageTitle>DoiQ, sign in</PageTitle>
 
@@ -15,6 +16,10 @@
         @if (_error is not null) { <p class="form-error" role="alert">@_error</p> }
         <button type="submit" class="btn btn-primary" disabled="@_busy">Sign in</button>
     </form>
+    @if ((Services.GetService(typeof(ClientOptions)) as ClientOptions)?.HostSection is { } extra)
+    {
+        <DynamicComponent Type="extra" />
+    }
 </div>
 
 @code {

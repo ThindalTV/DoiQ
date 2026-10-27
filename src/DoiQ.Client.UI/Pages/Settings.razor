@@ -5,6 +5,7 @@
 @inject NavigationManager Nav
 @implements IAsyncDisposable
 @inject IJSRuntime JS
+@inject IServiceProvider Services
 
 <PageTitle>Settings · DoiQ</PageTitle>
 
@@ -23,6 +24,13 @@
             <SecretPanel Title="@s.Title" Items="s.Items" McpUrl="@McpUrl" OnDismiss="() => _secrets = null" />
         }
 
+        @if (Options.HostSection is { } extra)
+        {
+            <DynamicComponent Type="extra" />
+        }
+
+        @if (Options.Administration)
+        {
         <section class="card-section" aria-labelledby="boards-h" id="boards">
             <div class="sec-head"><h3 id="boards-h">Boards</h3></div>
             <p class="muted board-note">A task is on one board at a time; move it to another from its drawer. A board can only be deleted once everything on it is Done.</p>
@@ -147,6 +155,7 @@
                 }
             }
         </section>
+        }
 
         <section class="card-section" aria-labelledby="theme-h">
             <div class="sec-head"><h3 id="theme-h">Appearance</h3></div>
@@ -158,6 +167,9 @@
             </div>
             <p class="muted board-note">System follows your device's light or dark setting. The choice is kept in this browser.</p>
         </section>
+
+        @if (Options.Administration)
+        {
 
         <section class="card-section" aria-labelledby="conn-h">
             <div class="sec-head"><h3 id="conn-h">Connect an agent</h3></div>
@@ -183,6 +195,7 @@
                 <div class="form-actions"><button type="submit" class="btn btn-primary btn-sm" disabled="@_busy">Change password</button></div>
             </form>
         </section>
+        }
     </main>
 </div>
 
@@ -214,7 +227,9 @@
     private int? _renameId, _focusRename;
     private BoardDto? _deleting;
 
-    private string McpUrl => Nav.BaseUri.TrimEnd('/') + "/mcp";
+    private ClientOptions Options => Services.GetService(typeof(ClientOptions)) as ClientOptions ?? ClientOptions.Default;
+
+    private string McpUrl =>Nav.BaseUri.TrimEnd('/') + "/mcp";
 
     protected override async Task OnInitializedAsync()
     {
@@ -263,6 +278,7 @@
 
     private async Task Load()
     {
+        if (!Options.Administration) return;
         try { _agents = await Api.GetAgentsAsync(); }
         catch (ApiException e) { _error = e.Message; _agents ??= []; }
         await LoadBoards();

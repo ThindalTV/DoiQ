@@ -9,6 +9,7 @@ COPY DoiQ.slnx ./
 COPY src/DoiQ.Shared/DoiQ.Shared.csproj src/DoiQ.Shared/
 COPY src/DoiQ.Core/DoiQ.Core.csproj src/DoiQ.Core/
 COPY src/DoiQ.Client/DoiQ.Client.csproj src/DoiQ.Client/
+COPY src/DoiQ.Client.UI/DoiQ.Client.UI.csproj src/DoiQ.Client.UI/
 COPY src/DoiQ.Server/DoiQ.Server.csproj src/DoiQ.Server/
 RUN dotnet restore src/DoiQ.Server/DoiQ.Server.csproj
 

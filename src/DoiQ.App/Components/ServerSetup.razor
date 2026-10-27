@@ -1,0 +1,51 @@
+@implements IDisposable
+@inject ServerSettings Server
+
+<PageTitle>DoiQ, connect</PageTitle>
+
+<div class="auth-page">
+    <form class="auth-card" @onsubmit="Connect">
+        <div class="brand"><DoiQ.Client.Components.Icon Name="logo" Size="22" /><h1>DoiQ</h1></div>
+        <h2>Connect to your server</h2>
+
+        <label for="server">Server address</label>
+        <input id="server" class="field" type="url" inputmode="url" autocomplete="url" placeholder="http://doiq.lan:8080"
+               @bind="_address" @bind:event="oninput" />
+
+        @if (_error is not null) { <p class="form-error" role="alert">@_error</p> }
+        <button type="submit" class="btn btn-primary" disabled="@_busy">Connect</button>
+    </form>
+</div>
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+    private string _address = "";
+    private string? _error;
+    private bool _busy;
+
+    private async Task Connect()
+    {
+        _error = null;
+        if (!ServerSettings.TryNormalise(_address, out var url)) { _error = "That is not a server address."; return; }
+        _busy = true;
+        try
+        {
+            // Check it answers like DoiQ before keeping it, so a typo doesn't leave the app on a dead address.
+            using var probe = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var resp = await probe.GetAsync(new Uri(url, "api/setup/status"), _cts.Token);
+            if (!resp.IsSuccessStatusCode) { _error = $"The server answered {(int)resp.StatusCode}. Is this a DoiQ server?"; return; }
+            Server.Set(url.ToString());
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException && !_cts.IsCancellationRequested)
+        {
+            _error = "Can't reach that address.";
+        }
+        finally { _busy = false; }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

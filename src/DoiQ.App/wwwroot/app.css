@@ -1,0 +1,5 @@
+/* App-only additions to the shared stylesheet: keep clear of notches and the home indicator. */
+body {
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+.server-setup { max-width: 420px; margin: 12vh auto 0; padding: 0 16px; }

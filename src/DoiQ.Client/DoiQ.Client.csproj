@@ -7,14 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Markdig" Version="1.4.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.13" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="10.0.13" PrivateAssets="all" />
-    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.13" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\DoiQ.Shared\DoiQ.Shared.csproj" />
+    <ProjectReference Include="..\DoiQ.Client.UI\DoiQ.Client.UI.csproj" />
   </ItemGroup>
 
 </Project>

@@ -25,6 +25,7 @@
     <ProjectReference Include="..\..\src\DoiQ.Server\DoiQ.Server.csproj" />
     <ProjectReference Include="..\..\src\DoiQ.Core\DoiQ.Core.csproj" />
     <ProjectReference Include="..\..\src\DoiQ.Client\DoiQ.Client.csproj" />
+    <ProjectReference Include="..\..\src\DoiQ.App.Core\DoiQ.App.Core.csproj" />
   </ItemGroup>
 
 </Project>

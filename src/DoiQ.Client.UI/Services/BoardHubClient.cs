@@ -20,20 +20,25 @@ public sealed class BoardHubClient : IAsyncDisposable
     private readonly IBoardSync? _sync;
     private readonly AuthState _auth;
     private readonly NavigationManager _nav;
+    private readonly ClientOptions _options;
     private HubConnection? _connection;
     private CancellationTokenSource? _cts;
 
-    public BoardHubClient(IDoiQApiClient api, AuthState auth, NavigationManager nav)
+    public BoardHubClient(IDoiQApiClient api, AuthState auth, NavigationManager nav, ClientOptions? options = null)
     {
         _sync = api as IBoardSync;   // the in-memory fake has nothing to connect to
         _auth = auth;
         _nav = nav;
+        _options = options ?? ClientOptions.Default;
         _auth.Changed += OnAuthChanged;
         State = _sync is null ? HubState.Live : HubState.Offline;
     }
 
     public HubState State { get; private set; }
     public event Action? StateChanged;
+
+    /// <summary>Every pushed task change, on any board, as it arrives (the app's notifications listen here).</summary>
+    public event Action<TaskChangedMessage>? TaskChanged;
 
     private void Set(HubState state)
     {
@@ -54,11 +59,11 @@ public sealed class BoardHubClient : IAsyncDisposable
 
         var cts = _cts = new CancellationTokenSource();
         var connection = _connection = new HubConnectionBuilder()
-            .WithUrl(_nav.ToAbsoluteUri(BoardHubEvents.HubPath))
+            .WithUrl(_options.HubUrl?.Invoke() ?? _nav.ToAbsoluteUri(BoardHubEvents.HubPath), o => _options.ConfigureHub?.Invoke(o))
             .WithAutomaticReconnect(new RetryPolicy(this))
             .Build();
 
-        connection.On<TaskChangedMessage>(BoardHubEvents.TaskChanged, m => Apply(() => _sync.ApplyAsync(m)));
+        connection.On<TaskChangedMessage>(BoardHubEvents.TaskChanged, m => { TaskChanged?.Invoke(m); return Apply(() => _sync.ApplyAsync(m)); });
         connection.On<TaskDeletedMessage>(BoardHubEvents.TaskDeleted, m => Apply(() => _sync.ApplyAsync(m)));
         connection.On<CommentAddedMessage>(BoardHubEvents.CommentAdded, m => Apply(() => _sync.ApplyAsync(m)));
         connection.On<FieldChangedMessage>(BoardHubEvents.FieldChanged, m => Apply(() => _sync.ApplyAsync(m)));

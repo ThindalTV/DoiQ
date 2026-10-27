@@ -21,7 +21,10 @@
                         <span class="menu-count">@b.OpenTasks open</span>
                     </button>
                 }
-                <a class="menu-link" role="menuitem" href="settings#boards" @onclick="() => _boardMenu = false">Manage boards…</a>
+                @if (Options.Administration)
+                {
+                    <a class="menu-link" role="menuitem" href="settings#boards" @onclick="() => _boardMenu = false">Manage boards…</a>
+                }
             </div>
         }
     </span>
@@ -150,6 +153,9 @@
     }
 
     [Inject] private IJSRuntime JS { get; set; } = default!;
+    [Inject] private IServiceProvider Services { get; set; } = default!;
+
+    private ClientOptions Options => Services.GetService(typeof(ClientOptions)) as ClientOptions ?? ClientOptions.Default;
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
