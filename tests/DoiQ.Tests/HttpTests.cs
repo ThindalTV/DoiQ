@@ -53,6 +53,20 @@ public sealed class HttpTests : IDisposable
     }
 
     [Fact]
+    public async Task GetMcp_AskingForAnEventStream_ReturnsMethodNotAllowed()
+    {
+        // Arrange
+        var (_, agent) = await AgentAsync(await SignedInUserAsync());
+        agent.DefaultRequestHeaders.Add("Accept", "text/event-stream");
+
+        // Act
+        var response = await agent.GetAsync("/mcp");
+
+        // Assert
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, response.StatusCode);
+    }
+
+    [Fact]
     public async Task GetMcp_WithAWrongKey_ReturnsUnauthorized()
     {
         // Arrange

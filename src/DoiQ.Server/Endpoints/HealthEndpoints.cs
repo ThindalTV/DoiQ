@@ -10,9 +10,18 @@ public static class HealthEndpoints
 
         // MCP itself is POST-only (stateless streamable HTTP). A GET with a valid agent key is a health check for the
         // agent's MCP settings: 200 names the agent the key belongs to; a missing or wrong key gets 401.
-        app.MapGet("/mcp", (ICurrentActor me) => me.Current is { } a
-            ? Results.Ok(new { status = "ok", actor = a.Name, kind = a.Kind.ToString(), mcp = "POST JSON-RPC 2.0 requests to this URL" })
-            : Results.Unauthorized());
+        // An MCP client asking for the server-to-client SSE stream gets 405, which the spec defines as "no stream here".
+        app.MapGet("/mcp", (HttpRequest request, ICurrentActor me) =>
+        {
+            if (request.Headers.Accept.Any(v => v?.Contains("text/event-stream", StringComparison.OrdinalIgnoreCase) == true))
+            {
+                request.HttpContext.Response.Headers.Allow = "POST";
+                return Results.StatusCode(StatusCodes.Status405MethodNotAllowed);
+            }
+            return me.Current is { } a
+                ? Results.Ok(new { status = "ok", actor = a.Name, kind = a.Kind.ToString(), mcp = "POST JSON-RPC 2.0 requests to this URL" })
+                : Results.Unauthorized();
+        });
         return app;
     }
 }
