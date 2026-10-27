@@ -11,9 +11,11 @@ public static class ManagementEndpoints
     {
         var admin = app.MapGroup("/api").RequireAuthorization(Policies.UserOnly);
 
-        admin.MapPost("/account/password", async (ChangePasswordRequest req, AccountService s, CancellationToken ct) =>
+        // Every other session is signed out; this one gets a cookie with the new stamp so it stays signed in.
+        admin.MapPost("/account/password", async (ChangePasswordRequest req, HttpContext ctx, AccountService s, ActorService actors, CancellationToken ct) =>
         {
             await s.Change(req.Current, req.New, ct);
+            await AuthEndpoints.SignInUser(ctx, actors, s, ct);
             return Results.NoContent();
         });
 

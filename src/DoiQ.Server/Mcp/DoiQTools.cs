@@ -69,7 +69,7 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     [McpServerTool(Name = "get_task", ReadOnly = true), Description("A full task with info fields, subtasks and comments, plus latestEventId (pass it to mark_seen / mark_handled). Read this before acting on a task you were woken for.")]
     public Task<TaskDetailDto> GetTask(int taskId, CancellationToken ct) => Run(() => tasks.GetAsync(taskId, ct));
 
-    [McpServerTool(Name = "create_task"), Description("Create a task on a board: pass boardId or boardName (with only one board that is the default; with several and none given you get an error listing them, see list_boards). A task stays on its board for good. For tasks derived from an email set source='Email' and sourceRef=<message id>: creating the same sourceRef twice returns the existing task (created=false). Pass requestKey to make a retried call safe. Status defaults to New; assignee is a name, 'any' (pool) or omitted. You may only create a task in Doing or Done if you assign it to yourself.")]
+    [McpServerTool(Name = "create_task"), Description("Create a task on a board: pass boardId or boardName (with only one board that is the default; with several and none given you get an error listing them, see list_boards). A task stays on its board for good. For tasks derived from an email set source='Email' and sourceRef=<message id>: creating the same sourceRef twice returns the existing task (created=false). Pass requestKey to make a retried call safe. Status defaults to New; assignee is a name, 'any' (pool) or omitted. You may only create a task in Doing or Done if you assign it to yourself or to the user.")]
     public Task<CreateTaskResult> CreateTask(string title, string? description = null, string? status = null, string? assignee = null, string? dueDate = null,
         [Description("Initial info fields")] NewFieldDto[]? fields = null, string? source = null, string? sourceRef = null, string? requestKey = null,
         [Description("Board id")] int? boardId = null, [Description("Board name (case-insensitive); boardId wins")] string? boardName = null, CancellationToken ct = default) =>
@@ -80,7 +80,7 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     public Task<TaskSummaryDto> UpdateTask(int taskId, string? title = null, string? description = null, string? dueDate = null, bool clearDueDate = false, long? expectedVersion = null, CancellationToken ct = default) =>
         Run(() => tasks.UpdateAsync(taskId, new UpdateTaskRequest(title, description, ParseDue(dueDate), clearDueDate, expectedVersion), ct));
 
-    [McpServerTool(Name = "move_task"), Description("Change column (New, Waiting, Doing, Done) and/or position: beforeTaskId places it directly above that task, afterTaskId directly below. Only move to Doing or Done if the task is assigned to you (or you hold its claim, for Doing). On the user's tasks or another agent's tasks do not move it: add_comment instead.")]
+    [McpServerTool(Name = "move_task"), Description("Change column (New, Waiting, Doing, Done) and/or position: beforeTaskId places it directly above that task, afterTaskId directly below. You may move tasks assigned to you and tasks assigned to the user (the user often works a task through you: keep its status current for them; it stays assigned to the user). A pool or unassigned task goes to Doing only while you hold its claim, and to Done only once it is assigned to you. Tasks another agent holds you cannot move: add_comment instead.")]
     public Task<TaskSummaryDto> MoveTask(int taskId, string status, int? beforeTaskId = null, int? afterTaskId = null, long? expectedVersion = null, CancellationToken ct = default) =>
         Run(() => tasks.Move(taskId, new MoveTaskRequest(ParseStatus(status), beforeTaskId, afterTaskId, expectedVersion), ct));
 
@@ -91,7 +91,7 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     [McpServerTool(Name = "upsert_field"), Description("Add or update an info field by label (e.g. 'Email summary', 'Research', 'Result'). Re-running a step updates the same field instead of adding duplicates. Value is markdown.")]
     public Task<InfoFieldDto> UpsertField(int taskId, string label, string value, CancellationToken ct) => Run(() => tasks.UpsertFieldAsync(taskId, new FieldRequest(label, value), ct));
 
-    [McpServerTool(Name = "add_comment"), Description("Post to the task's discussion thread (markdown). Allowed on every task, including tasks the user or another agent holds: use it to ask questions or report instead of moving or editing their tasks. Pass requestKey to make a retry safe.")]
+    [McpServerTool(Name = "add_comment"), Description("Post to the task's discussion thread (markdown). Allowed on every task, including tasks another agent holds: there it is the only thing you can do, so use it to ask questions or report. Pass requestKey to make a retry safe.")]
     public Task<CommentDto> AddComment(int taskId, string body, string? requestKey = null, CancellationToken ct = default) => Run(() => tasks.AddComment(taskId, new AddCommentRequest(body, requestKey), ct));
 
     [McpServerTool(Name = "mark_seen"), Description("Move your SeenThroughEventId on a task (throughEventId defaults to the latest event). Writes never imply seen.")]

@@ -150,17 +150,77 @@ public class PermissionTests
     [Theory]
     [InlineData(BoardStatus.Done)]
     [InlineData(BoardStatus.Doing)]
-    public async Task MoveAsync_AgentOnTaskAssignedToUser_ThrowsForbidden(BoardStatus target)
+    public async Task MoveAsync_AgentOnTaskAssignedToUser_MovesItAndTheUserKeepsIt(BoardStatus target)
     {
         // Arrange
         using var h = new Harness();
         var id = await h.CreateAsync(h.User, "mine", assignee: "User");
 
         // Act
-        var ex = await Record.ExceptionAsync(() => h.AsHermes().Move(id, new MoveTaskRequest(target)));
+        var moved = await h.AsHermes().Move(id, new MoveTaskRequest(target));
+
+        // Assert
+        Assert.Equal(target, moved.Status);
+        Assert.Equal(h.User.Id, moved.AssigneeId);
+    }
+
+    [Fact]
+    public async Task MoveAsync_AgentMovesUnassignedTaskToDone_ThrowsForbidden()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "nobody's", BoardStatus.Waiting);
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => h.AsHermes().Move(id, new MoveTaskRequest(BoardStatus.Done)));
 
         // Assert
         Assert.IsType<ForbiddenException>(ex);
+    }
+
+    [Fact]
+    public async Task CreateAsync_AgentInDoingAssignedToUser_CreatesIt()
+    {
+        // Arrange
+        using var h = new Harness();
+
+        // Act
+        var r = await h.AsHermes().Create(new CreateTaskRequest("working on it", Status: BoardStatus.Doing, Assignee: "User"));
+
+        // Assert
+        Assert.Equal(BoardStatus.Doing, r.Task.Task.Status);
+        Assert.Equal(h.User.Id, r.Task.Task.AssigneeId);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SameSourceRefWithSurroundingSpaces_ReturnsTheExistingTask()
+    {
+        // Arrange
+        using var h = new Harness();
+        var first = await h.AsHermes().Create(new CreateTaskRequest("mail", Source: TaskSource.Email, SourceRef: "<m-1@x>"));
+
+        // Act
+        var again = await h.AsHermes().Create(new CreateTaskRequest("mail", Source: TaskSource.Email, SourceRef: " <m-1@x> "));
+
+        // Assert
+        Assert.False(again.Created);
+        Assert.Equal(first.Task.Task.Id, again.Task.Task.Id);
+    }
+
+    [Fact]
+    public async Task CreateAsync_SameRequestKeyAfterTheTaskWasDeleted_CreatesANewTask()
+    {
+        // Arrange
+        using var h = new Harness();
+        var first = await h.AsHermes().Create(new CreateTaskRequest("K", RequestKey: "rk"));
+        await h.AsUser().DeleteAsync(first.Task.Task.Id);
+
+        // Act
+        var again = await h.AsHermes().Create(new CreateTaskRequest("K", RequestKey: "rk"));
+
+        // Assert
+        Assert.True(again.Created);
+        Assert.NotEqual(first.Task.Task.Id, again.Task.Task.Id);
     }
 
     [Fact]
@@ -872,6 +932,57 @@ public class OutboxTests
         var row = await db.Outbox.SingleAsync();
         Assert.Equal(OutboxKind.Notify, row.Kind);
         Assert.Equal("Hermes assigned you: needs user", row.PayloadJson);
+    }
+
+    [Fact]
+    public async Task MoveAsync_ByUserIntoNew_QueuesAWakeForTheTriageAgent()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "x", BoardStatus.Waiting);
+
+        // Act
+        await h.AsUser().Move(id, new MoveTaskRequest(BoardStatus.New));
+
+        // Assert
+        await using var db = h.NewDb();
+        var row = await db.Outbox.SingleAsync();
+        Assert.Equal(h.Hermes.Id, row.TargetActorId);
+        Assert.Equal(EventType.Moved, (await db.Events.SingleAsync(e => e.Id == row.EventId)).Type);
+    }
+
+    [Fact]
+    public async Task AddSubtask_ByAgentAssignedToUser_QueuesANotify()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.Hermes, "quote", BoardStatus.Doing, "Hermes");
+
+        // Act
+        await h.AsHermes().AddSubtask(id, new AddSubtaskRequest("Approve the price", "User"));
+
+        // Assert
+        await using var db = h.NewDb();
+        var row = await db.Outbox.SingleAsync();
+        Assert.Equal(OutboxKind.Notify, row.Kind);
+        Assert.Equal("Hermes assigned you a subtask: Approve the price (on quote)", row.PayloadJson);
+    }
+
+    [Fact]
+    public async Task UpdateSubtaskAsync_ByAgentTickingTheUsersSubtask_QueuesNoNotify()
+    {
+        // Arrange
+        using var h = new Harness();
+        var id = await h.CreateAsync(h.User, "quote", BoardStatus.Doing, "Hermes");
+        var sub = await h.AsUser().AddSubtask(id, new AddSubtaskRequest("Approve the price", "User"));
+        await using (var clear = h.NewDb()) { clear.Outbox.RemoveRange(clear.Outbox); await clear.SaveChangesAsync(); }
+
+        // Act
+        await h.AsHermes().UpdateSubtaskAsync(id, sub.Id, new UpdateSubtaskRequest(Done: true));
+
+        // Assert
+        await using var db = h.NewDb();
+        Assert.Empty(await db.Outbox.ToListAsync());
     }
 
     [Fact]

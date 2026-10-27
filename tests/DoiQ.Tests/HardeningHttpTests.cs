@@ -242,6 +242,44 @@ public sealed class HardeningHttpTests : IDisposable
     }
 
     [Fact]
+    public async Task PostSeen_BodyIsNotJson_ReturnsBadRequest()
+    {
+        // Arrange
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var user = await SignedInUser(cts.Token);
+        var created = await (await user.PostAsJsonAsync("/api/tasks", new CreateTaskRequest("x"), cts.Token)).Content.ReadFromJsonAsync<TaskDetailDto>(cts.Token);
+
+        // Act
+        var broken = await user.PostAsync($"/api/tasks/{created!.Task.Id}/seen", Json("{"), cts.Token);
+        var plain = await user.PostAsync($"/api/tasks/{created.Task.Id}/handled", new StringContent("42", Encoding.UTF8, "text/plain"), cts.Token);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.BadRequest, broken.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, plain.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostAccountPassword_SignsOutOtherSessionsAndKeepsThisOne()
+    {
+        // Arrange
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(1));
+        var user = await SignedInUser(cts.Token);
+        var other = _factory.CreateClient();
+        (await other.PostAsJsonAsync("/api/auth/login", new LoginRequest(Password), cts.Token)).EnsureSuccessStatusCode();
+
+        // Assume
+        Assert.Equal(HttpStatusCode.OK, (await other.GetAsync("/api/me", cts.Token)).StatusCode);
+
+        // Act
+        var change = await user.PostAsJsonAsync("/api/account/password", new ChangePasswordRequest(Password, "a brand new pw"), cts.Token);
+
+        // Assert
+        Assert.Equal(HttpStatusCode.NoContent, change.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await user.GetAsync("/api/me", cts.Token)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await other.GetAsync("/api/me", cts.Token)).StatusCode);
+    }
+
+    [Fact]
     public async Task Server_CookieIssuedByOneInstance_IsAcceptedByASecondInstanceOverTheSameDataFolder()
     {
         // Arrange

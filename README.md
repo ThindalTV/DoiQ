@@ -149,8 +149,8 @@ In DoiQ Settings, edit the agent: **Webhook URL** `http://<hermes-host>:8644/web
 
 | Route | Body | Fires when |
 | --- | --- | --- |
-| `doiq` | `{ "eventId", "boardId", "boardName", "taskId", "type", "actor", "title", "at" }` | The user creates, edits, comments on, adds a field to, or assigns a task that is the agent's to look at |
-| `doiq-notify` | `{ "eventId", "boardId", "boardName", "taskId", "message" }` with `message` = `"<agent> assigned you: <title>"` | The agent creates a task for, or assigns a task to, the user |
+| `doiq` | `{ "eventId", "boardId", "boardName", "taskId", "type", "actor", "title", "at" }` | The user creates, edits, moves, comments on, adds a field to, or assigns a task that is the agent's to look at |
+| `doiq-notify` | `{ "eventId", "boardId", "boardName", "taskId", "message" }` with `message` = `"<agent> assigned you: <title>"` (or `"<agent> assigned you a subtask: <subtask> (on <title>)"`) | The agent creates a task for, or assigns a task or subtask to, the user |
 
 Who gets a `doiq` webhook: the assignee if it is an agent; every active agent for a pool (`any`) task (they race on `claim_task`); only the triage agent for a task in New; agents a subtask is assigned to. Deactivated agents get nothing, and an agent's own changes never wake anyone. Changes to the same task and target within the debounce window (30 s, `Board__DebounceSeconds`) go out as one webhook carrying the latest event, so "create, enrich, assign, move" is one interruption. A webhook is a wake-up, not proof of work: Hermes should call `get_inbox`; a repeat wake finds nothing past `mark_handled` and does nothing.
 
@@ -177,7 +177,14 @@ mcp_servers:
       X-Api-Key: <the agent's key>      # or: Authorization: Bearer <key>
 ```
 
-The 18 tools: `list_boards`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`. Their descriptions are the agent's instructions (for example `move_task` says to move to Doing or Done only when the task is assigned to you, and to comment otherwise). Rule violations come back as tool errors with text the model can act on ("Comment on the user's tasks instead", "Task is already claimed by another agent"). Writes accept a `requestKey` so a retried call is safe, and `upsert_field` matches the label case-insensitively so re-running a step updates one field.
+The 18 tools: `list_boards`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
+
+What an agent may do to a task:
+
+- **Its own tasks and the user's tasks:** edit, move to any lane (Doing and Done included), assign, add fields and subtasks. The user often works a task through an agent, so the agent keeps its status current; moving the user's task does not take it over, it stays assigned to the user.
+- **Pool (`any`) and unassigned tasks:** edit and assign; move to Doing only while holding a live claim (the agent then becomes the assignee), to Done only once assigned to it.
+- **Tasks another agent holds** (assigned to it, or live-claimed by it): comment only.
+- **Never:** delete tasks, or add, rename or delete boards. Writes accept a `requestKey` so a retried call is safe, and `upsert_field` matches the label case-insensitively so re-running a step updates one field.
 
 ### 5. What has and has not been verified
 

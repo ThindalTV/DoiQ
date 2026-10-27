@@ -121,6 +121,25 @@ public sealed class BoardSyncTests : IDisposable
     }
 
     [Fact]
+    public async Task DoiQApiClient_MarkSeenAfterACommentTheClientNeverShowed_LeavesThatCommentUnread()
+    {
+        // Arrange
+        var (browser, userHttp, agent, _) = await ArrangeAsync();
+        var id = await CreateAsync(agent, "Talk to me");
+        await browser.GetBoard(Ct);
+        await browser.LoadTask(id, Ct);   // the drawer opened; no hub, so the comment below never reaches this client
+        (await agent.PostAsJsonAsync($"/api/tasks/{id}/comments", new AddCommentRequest("late"))).EnsureSuccessStatusCode();
+
+        // Act
+        await browser.MarkSeenAsync(id);
+
+        // Assert
+        var detail = await userHttp.GetFromJsonAsync<TaskDetailDto>($"/api/tasks/{id}", Ct);
+        Assert.True(detail!.Task.Unread);
+        Assert.True(detail.Comments.Single().Unread);
+    }
+
+    [Fact]
     public async Task DoiQApiClient_AgentMovesATask_TheCardChangesLane()
     {
         // Arrange
@@ -161,9 +180,10 @@ public sealed class BoardSyncTests : IDisposable
         var (browser, _, _, cookie) = await ArrangeAsync();
         await browser.GetBoard(Ct);
         var task = await browser.CreateTaskAsync("Mine");
+        await ConnectAsync(browser, cookie);
+        await browser.CatchUpAsync();   // the create's push went out before the hub connected: take it in now, or the move leaves a gap whose catch-up counts as a change
         var changes = 0;
         browser.Changed += () => changes++;
-        await ConnectAsync(browser, cookie);
 
         // Act
         await browser.MoveAsync(task.Id, BoardLane.Doing, null);

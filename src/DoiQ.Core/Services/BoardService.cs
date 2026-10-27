@@ -79,14 +79,8 @@ public sealed class BoardService(DoiQDbContext db, ICurrentActor current, IBoard
         var open = await tasks.CountAsync(t => t.Status != BoardStatus.Done, ct);
         if (open > 0) throw new BoardNotEmptyException(board.Name, open, await tasks.CountAsync(ct));
 
-        var taskIds = await tasks.Select(t => t.Id).ToListAsync(ct);
-        var commentIds = await db.Comments.Where(c => tasks.Select(t => t.Id).Contains(c.TaskId)).Select(c => c.Id).ToListAsync(ct);
-        var subtaskIds = await db.Subtasks.Where(s => tasks.Select(t => t.Id).Contains(s.TaskId)).Select(s => s.Id).ToListAsync(ct);
-
         // Idempotency records point at rows that are about to vanish; a retry must not "find" them.
-        await db.RequestKeys.Where(r => (r.Key.StartsWith("task:") && taskIds.Contains(r.Result))
-                                        || (r.Key.StartsWith("comment:") && commentIds.Contains(r.Result))
-                                        || (r.Key.StartsWith("subtask:") && subtaskIds.Contains(r.Result))).ExecuteDeleteAsync(ct);
+        await TaskService.RequestKeysFor(db, tasks.Select(t => t.Id)).ExecuteDeleteAsync(ct);
         await db.Outbox.Where(o => o.BoardId == id).ExecuteDeleteAsync(ct);          // pending and delivered; they reference the events
         await db.Events.Where(e => e.BoardId == id).ExecuteDeleteAsync(ct);
         await tasks.ExecuteDeleteAsync(ct);                                           // fields, comments, subtasks and read markers cascade

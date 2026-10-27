@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using DoiQ.Core.Services;
 using DoiQ.Server.Auth;
 using DoiQ.Shared.Dtos;
@@ -33,21 +34,34 @@ public static class AuthEndpoints
             await Task.Delay(500, ct);   // on top of the per-IP rate limit
             return Results.Problem("Wrong password.", statusCode: 401);
         }
-        return await SignInUser(ctx, actors, ct);
+        var user = await SignInUser(ctx, actors, account, ct);
+        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage));
     }
 
     private static async Task<IResult> Setup(SetupRequest req, HttpContext ctx, ActorService actors, AccountService account, PasswordVerifyGate gate, CancellationToken ct)
     {
         await gate.Run(async () => { await account.Setup(req.Password, ct); return true; }, ct);
-        return await SignInUser(ctx, actors, ct);
+        var user = await SignInUser(ctx, actors, account, ct);
+        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage));
     }
 
-    private static async Task<IResult> SignInUser(HttpContext ctx, ActorService actors, CancellationToken ct)
+    /// <summary>Issues the user's login cookie, stamped with the current password (see <see cref="AccountService.SessionStamp"/>).</summary>
+    internal static async Task<ActorInfo> SignInUser(HttpContext ctx, ActorService actors, AccountService account, CancellationToken ct)
     {
         var user = await actors.GetHumanAsync(ct) ?? throw new NotFoundException("No human actor seeded.");
-        await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme,
-            ActorClaims.ToPrincipal(user, CookieAuthenticationDefaults.AuthenticationScheme),
-            new AuthenticationProperties { IsPersistent = true });
-        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage));
+        var principal = ActorClaims.ToPrincipal(user, CookieAuthenticationDefaults.AuthenticationScheme);
+        ((ClaimsIdentity)principal.Identity!).AddClaim(new Claim(ActorClaims.SessionStamp, await account.SessionStamp(ct) ?? ""));
+        await ctx.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal, new AuthenticationProperties { IsPersistent = true });
+        return user;
+    }
+
+    /// <summary>Rejects a login cookie issued before the last password change, and signs it out.</summary>
+    internal static async Task ValidateSession(CookieValidatePrincipalContext ctx)
+    {
+        var account = ctx.HttpContext.RequestServices.GetRequiredService<AccountService>();
+        var current = await account.SessionStamp(ctx.HttpContext.RequestAborted);
+        if (current is not null && ctx.Principal?.FindFirstValue(ActorClaims.SessionStamp) == current) return;
+        ctx.RejectPrincipal();
+        await ctx.HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
     }
 }

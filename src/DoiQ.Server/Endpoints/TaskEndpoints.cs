@@ -48,6 +48,14 @@ public static class TaskEndpoints
         return app;
     }
 
-    private static async Task<T?> ReadOptionalAsync<T>(HttpRequest http, CancellationToken ct) where T : class =>
-        http.ContentLength is > 0 || http.Headers.TransferEncoding.Count > 0 ? await http.ReadFromJsonAsync<T>(ct) : null;
+    /// <summary>The body if there is one. Not JSON (or not sent as JSON) is the caller's mistake: 400, not 500.</summary>
+    private static async Task<T?> ReadOptionalAsync<T>(HttpRequest http, CancellationToken ct) where T : class
+    {
+        if (http.ContentLength is not > 0 && http.Headers.TransferEncoding.Count == 0) return null;
+        try { return await http.ReadFromJsonAsync<T>(ct); }
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException)
+        {
+            throw new ValidationException("The body must be JSON (Content-Type: application/json), for example {\"throughEventId\": 42}, or empty.");
+        }
+    }
 }

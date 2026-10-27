@@ -16,6 +16,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     private readonly SemaphoreSlim _gate = new(1, 1);   // load, apply and catch-up never interleave
     private readonly HashSet<int> _detailed = [];       // tasks whose description and lists are loaded (the board load brings summaries only)
     private readonly Dictionary<int, TaskVm> _offBoard = [];   // archived tasks opened from the archive view or a search: never on the board
+    private readonly Dictionary<int, long> _shownThrough = [];   // per task, the newest event this client has taken in (what marking seen may cover)
     private ActorDto? _me;
     private int _archiveAfterDays = 14;
     private DateTime _loadedAtUtc;
@@ -51,6 +52,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
             _state.Clear();   // the next load fetches the new board; nothing of the old one stays on screen
             _detailed.Clear();
             _offBoard.Clear();
+            _shownThrough.Clear();
             ArchivedCount = 0;
         }
         finally { _gate.Release(); }
@@ -134,6 +136,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
         _agentNames = actors.Where(a => a.Kind == ActorKind.Agent).Select(a => a.Name).ToList();
         _detailed.Clear();
         _offBoard.Clear();
+        _shownThrough.Clear();
         _archiveAfterDays = load.ArchiveAfterDays;
         _loadedAtUtc = now;
         ArchivedCount = load.ArchivedCount;
@@ -195,6 +198,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
         _state.Clear();
         _detailed.Clear();
         _offBoard.Clear();
+        _shownThrough.Clear();
         ArchivedCount = 0;
         _me = null;
         _boardId = 0;
@@ -294,7 +298,9 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     public async Task MarkSeenAsync(int id)
     {
         if (!_detailed.Contains(id)) await RefreshAsync(id);   // a task the board loaded without its lists
-        await Send<object>(HttpMethod.Post, $"api/tasks/{id}/seen");
+        // Only through what this client has taken in: an event that lands meanwhile stays unread until it is shown.
+        var through = _shownThrough.GetValueOrDefault(id);
+        await Send<object>(HttpMethod.Post, $"api/tasks/{id}/seen", new SeenRequest(through > 0 ? through : null));
         if (Find(id) is { } t)
             Replace(t with
             {
@@ -338,7 +344,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     public async Task ApplyAsync(TaskChangedMessage m)
     {
-        await ApplyEventAsync(m.EventId, m.Task.BoardId, async () =>
+        await ApplyEventAsync(m.EventId, m.Task.BoardId, m.Task.Id, async () =>
         {
             var byOther = m.ActorId != Me.Id;
             var existing = _state.Find(m.Task.Id);
@@ -349,11 +355,11 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
         });
     }
 
-    public Task ApplyAsync(TaskDeletedMessage m) => ApplyEventAsync(m.EventId, m.BoardId, () => Task.FromResult(Forget(m.TaskId)));
+    public Task ApplyAsync(TaskDeletedMessage m) => ApplyEventAsync(m.EventId, m.BoardId, m.TaskId, () => Task.FromResult(Forget(m.TaskId)));
 
     public async Task ApplyAsync(CommentAddedMessage m)
     {
-        await ApplyEventAsync(m.EventId, m.BoardId, async () =>
+        await ApplyEventAsync(m.EventId, m.BoardId, m.TaskId, async () =>
         {
             var byOther = m.ActorId != Me.Id;
             // Unknown here, or known by its counts only: the detail brings the new count (and an archived task stays off the board).
@@ -377,7 +383,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     public async Task ApplyAsync(FieldChangedMessage m)
     {
-        await ApplyEventAsync(m.EventId, m.BoardId, async () =>
+        await ApplyEventAsync(m.EventId, m.BoardId, m.TaskId, async () =>
         {
             var byOther = m.ActorId != Me.Id;
             if (_state.Find(m.TaskId) is null || !_detailed.Contains(m.TaskId)) return await RefreshAsync(m.TaskId);
@@ -398,13 +404,14 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     /// consecutive) and never applied. The cursor moves only through consecutive ids: an event that arrives ahead of
     /// an earlier one is applied, but leaves a gap that a debounced catch-up fills.
     /// </summary>
-    private async Task ApplyEventAsync(long eventId, int boardId, Func<Task<bool>> apply)
+    private async Task ApplyEventAsync(long eventId, int boardId, int taskId, Func<Task<bool>> apply)
     {
         await _gate.WaitAsync();
         try
         {
             if (!_state.IsLoaded || _state.IsApplied(eventId)) return;
             var changed = boardId == _boardId && await apply();
+            if (boardId == _boardId) TookIn(taskId, eventId);
             _state.TryAdvance(eventId);
             if (_state.HasGap) ScheduleCatchUp();
             if (changed) Changed?.Invoke();
@@ -492,7 +499,16 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     }
 
     /// <summary>Stores a full task: on the board, or (archived) aside, where it never shows on the board. True when the board changed.</summary>
-    private bool StoreDetail(TaskDetailDto d) => Store(TaskMapper.FromDetail(d, Me), detailed: true);
+    private bool StoreDetail(TaskDetailDto d)
+    {
+        TookIn(d.Task.Id, d.LatestEventId);
+        return Store(TaskMapper.FromDetail(d, Me), detailed: true);
+    }
+
+    private void TookIn(int taskId, long eventId)
+    {
+        if (eventId > _shownThrough.GetValueOrDefault(taskId)) _shownThrough[taskId] = eventId;
+    }
 
     private bool MergeSummary(TaskSummaryDto s, bool byOther)
     {
@@ -534,6 +550,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     {
         _detailed.Remove(id);
         _offBoard.Remove(id);
+        _shownThrough.Remove(id);
         return _state.Remove(id);
     }
 

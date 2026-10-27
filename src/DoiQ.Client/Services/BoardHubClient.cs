@@ -70,14 +70,31 @@ public sealed class BoardHubClient : IAsyncDisposable
         Set(HubState.Connecting);
         try
         {
-            await _sync.EnsureLoaded(cts.Token);
+            await LoadAsync(cts.Token);
             await ConnectAsync(connection, cts.Token);
         }
         catch (Exception) when (cts.IsCancellationRequested) { /* stopped meanwhile */ }
-        catch (Exception)
+    }
+
+    /// <summary>
+    /// The board must be loaded before connecting (it records where catch-up starts). If it cannot load (server down),
+    /// the page says so and the indicator says Offline, and this keeps trying, so live updates start once it is back.
+    /// Signing out stops it.
+    /// </summary>
+    private async Task LoadAsync(CancellationToken ct)
+    {
+        for (var attempt = 0; ; attempt++)
         {
-            // The board itself could not load (server down, signed out): the page shows that; the indicator says Offline.
-            Set(HubState.Offline);
+            try
+            {
+                await _sync!.EnsureLoaded(ct);
+                return;
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                Set(HubState.Offline);
+                await Task.Delay(Backoff[Math.Min(attempt + 1, Backoff.Length - 1)], ct);
+            }
         }
     }
 

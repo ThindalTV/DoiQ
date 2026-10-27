@@ -101,6 +101,8 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
         // APIs answer 401/403, never redirect to a login page.
         o.Events.OnRedirectToLogin = ctx => { ctx.Response.StatusCode = StatusCodes.Status401Unauthorized; return Task.CompletedTask; };
         o.Events.OnRedirectToAccessDenied = ctx => { ctx.Response.StatusCode = StatusCodes.Status403Forbidden; return Task.CompletedTask; };
+        // A password change signs out every other session.
+        o.Events.OnValidatePrincipal = AuthEndpoints.ValidateSession;
     })
     .AddScheme<Microsoft.AspNetCore.Authentication.AuthenticationSchemeOptions, ApiKeyAuthHandler>(ActorClaims.ApiKeyScheme, _ => { });
 builder.Services.AddAuthorization(o =>

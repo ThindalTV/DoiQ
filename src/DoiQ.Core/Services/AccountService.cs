@@ -1,3 +1,5 @@
+using System.Security.Cryptography;
+using System.Text;
 using DoiQ.Core.Data;
 using DoiQ.Core.Domain;
 using DoiQ.Shared.Dtos;
@@ -24,6 +26,14 @@ public sealed class AccountService(DoiQDbContext db)
         try { await db.SaveChangesAsync(ct); }
         catch (DbUpdateException) { throw new ConflictException("Setup has already been completed."); }   // lost the race
     }
+
+    /// <summary>
+    /// Changes whenever the password does (it is derived from the stored hash, whose salt is new every time). A login
+    /// cookie carries the stamp it was issued with, and one with an old stamp is rejected: a password change signs out
+    /// every other session. Null before first-run setup.
+    /// </summary>
+    public async Task<string?> SessionStamp(CancellationToken ct) =>
+        await Stored(ct) is { } stored ? Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(stored.Value)))[..16] : null;
 
     /// <summary>True/false once a password is set; null before first-run setup.</summary>
     public async Task<bool?> Verify(string? password, CancellationToken ct) =>

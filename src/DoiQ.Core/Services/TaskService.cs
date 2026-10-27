@@ -271,17 +271,21 @@ public sealed class TaskService(
         if (await FindKeyAsync("task", req.RequestKey, ct) is { } prior)
             return new CreateTaskResult(await GetAsync(prior, ct), false);
 
-        if (!string.IsNullOrWhiteSpace(req.SourceRef))
+        // Stored trimmed, so looked up trimmed: " <id>" and "<id>" are the same email.
+        var sourceRef = string.IsNullOrWhiteSpace(req.SourceRef) ? null : req.SourceRef.Trim();
+        if (sourceRef is not null)
         {
-            var existing = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == req.SourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
+            var existing = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
             if (existing is { } eid) return new CreateTaskResult(await GetAsync(eid, ct), false);
         }
 
         var status = EnumInput.Require(req.Status ?? BoardStatus.New, "status");
         var source = EnumInput.Require(req.Source ?? TaskSource.Manual, "source");
         var (assigneeId, pool) = await ResolveAssigneeAsync(req.Assignee, allowPool: true, ct);
-        if (me.IsAgent && status is BoardStatus.Doing or BoardStatus.Done && assigneeId != me.Id)
-            throw new ForbiddenException("Agents may only create tasks in Doing or Done when assigned to themselves.");
+        var actors = await ActorsAsync(ct);
+        var forUser = assigneeId is { } aid && actors.GetValueOrDefault(aid)?.Kind == ActorKind.Human;
+        if (me.IsAgent && status is BoardStatus.Doing or BoardStatus.Done && assigneeId != me.Id && !forUser)
+            throw new ForbiddenException("Agents may only create tasks in Doing or Done when assigned to themselves or to the user.");
 
         var now = Now;
         var task = new TaskItem
@@ -299,7 +303,7 @@ public sealed class TaskService(
             DoneAt = status == BoardStatus.Done ? now : null,
             SortOrder = await BottomOrderAsync(board.Id, status, ct),
             Source = source,
-            SourceRef = string.IsNullOrWhiteSpace(req.SourceRef) ? null : req.SourceRef.Trim(),
+            SourceRef = sourceRef,
             LastActivityAt = now,
             LastActivityById = me.Id,
             Version = 1,
@@ -321,7 +325,7 @@ public sealed class TaskService(
         {
             // lost a race on the unique SourceRef: return the winner
             db.ChangeTracker.Clear();
-            var winner = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == req.SourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
+            var winner = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
             if (winner is { } wid) return new CreateTaskResult(await GetAsync(wid, ct), false);
             throw;
         }
@@ -380,12 +384,15 @@ public sealed class TaskService(
         var from = t.Status;
         var now = Now;
 
+        // Agents may move their own tasks and the user's (the user often works a task through an agent), to any lane;
+        // the user's task stays the user's. Pool and unassigned tasks reach Doing through a claim, Done only once assigned.
         if (me.IsAgent)
         {
             EnsureCanWrite(t, me);
-            if (req.Status == BoardStatus.Done && t.AssigneeId != me.Id)
-                throw new ForbiddenException("Agents can only move tasks assigned to them to Done. Comment on the user's tasks instead.");
-            if (req.Status == BoardStatus.Doing)
+            var forUser = AssignedToHuman(t);
+            if (req.Status == BoardStatus.Done && t.AssigneeId != me.Id && !forUser)
+                throw new ForbiddenException("Agents can only move tasks assigned to them or to the user to Done. Claim a pool task and move it to Doing first.");
+            if (req.Status == BoardStatus.Doing && !forUser)
             {
                 var holdsClaim = t.ClaimedById == me.Id && ClaimLive(t, now);
                 if (t.AssigneeId != me.Id && !holdsClaim)
@@ -408,6 +415,7 @@ public sealed class TaskService(
         t.Version++;
 
         var ev = Record(t, EventType.Moved, new { from = from.ToString(), to = req.Status.ToString() });
+        await PlanWakeupsAsync(ev, t, me, [], ct);
         await CommitAsync(ct);
         After(() => PublishChangedAsync(ev, t));
         await RunAfterAsync();
@@ -444,6 +452,7 @@ public sealed class TaskService(
         var ev = Record(t, EventType.Deleted, new { title = t.Title });
         var pendingOutbox = await db.Outbox.Where(o => o.TaskId == id && o.SentAt == null).ToListAsync(ct);
         db.Outbox.RemoveRange(pendingOutbox);
+        db.RequestKeys.RemoveRange(await RequestKeysFor(db, db.Tasks.IgnoreQueryFilters().Where(x => x.Id == id).Select(x => x.Id)).ToListAsync(ct));
         db.Tasks.Remove(t);
         await CommitAsync(ct);
         After(() => broadcaster.TaskDeletedAsync(new TaskDeletedMessage(ev.Id, me.Id, id, t.BoardId)));
@@ -588,6 +597,7 @@ public sealed class TaskService(
         db.Subtasks.Add(s);
         var ev = Record(t, EventType.SubtaskAdded, new { title });
         await PlanWakeupsAsync(ev, t, me, assigneeId is { } aid ? [aid] : [], ct);
+        await NotifySubtaskForUserAsync(ev, t, me, assigneeId, title, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
@@ -620,12 +630,14 @@ public sealed class TaskService(
             s.Title = req.Title.Trim();
         }
         if (req.Done is { } done && done != s.Done) { s.Done = done; s.DoneAt = done ? Now : null; }
+        var assignedBefore = s.AssigneeId;
         if (req.Assignee is not null) (s.AssigneeId, _) = await ResolveAssigneeAsync(req.Assignee, allowPool: false, ct);
         if (req.BeforeId is not null || req.AfterId is not null)
             s.SortOrder = await SubtaskOrderAsync(taskId, subtaskId, req.BeforeId, req.AfterId, ct);
 
         var ev = Record(t, EventType.SubtaskUpdated, new { subtaskId, title = s.Title, done = s.Done });
         await PlanWakeupsAsync(ev, t, me, s.AssigneeId is { } aid ? [aid] : [], ct);
+        if (s.AssigneeId != assignedBefore) await NotifySubtaskForUserAsync(ev, t, me, s.AssigneeId, s.Title, ct);
         await CommitAsync(ct);
         After(() => PublishChangedAsync(ev, t));
         await RunAfterAsync();
@@ -858,7 +870,12 @@ public sealed class TaskService(
     private async Task<Board> ResolveBoardAsync(int? id, string? name, CancellationToken ct) =>
         BoardResolver.Pick((await BoardsAsync(ct)).Values.OrderBy(b => b.Id).ToList(), id, name);
 
-    /// <summary>An agent may only comment on a task another agent holds (assigned to it or live-claimed by it).</summary>
+    private bool AssignedToHuman(TaskItem t) => t.AssigneeId is { } a && _actors?.GetValueOrDefault(a)?.Kind == ActorKind.Human;
+
+    /// <summary>
+    /// An agent may only comment on a task another agent holds (assigned to it or live-claimed by it). Everything else,
+    /// the user's tasks included, it may edit, move and assign: the user works tasks through agents.
+    /// </summary>
     private void EnsureCanWrite(TaskItem t, ActorInfo me)
     {
         if (me.IsHuman) return;
@@ -969,6 +986,15 @@ public sealed class TaskService(
         return await FindKeyAsync(scope, key, ct);
     }
 
+    /// <summary>
+    /// The idempotency records that point at these tasks or at their comments and subtasks. They go with the rows: a
+    /// retried call with the same requestKey must create anew, not "find" a deleted row.
+    /// </summary>
+    internal static IQueryable<RequestKey> RequestKeysFor(DoiQDbContext db, IQueryable<int> taskIds) =>
+        db.RequestKeys.Where(r => (r.Key.StartsWith("task:") && taskIds.Contains(r.Result))
+            || (r.Key.StartsWith("comment:") && db.Comments.Any(c => c.Id == r.Result && taskIds.Contains(c.TaskId)))
+            || (r.Key.StartsWith("subtask:") && db.Subtasks.Any(s => s.Id == r.Result && taskIds.Contains(s.TaskId))));
+
     private void RememberKey(string scope, string? key, int result)
     {
         if (string.IsNullOrWhiteSpace(key)) return;
@@ -1020,7 +1046,7 @@ public sealed class TaskService(
 
     private static readonly HashSet<EventType> HumanTriggers =
     [
-        EventType.Created, EventType.Assigned, EventType.Updated, EventType.FieldAdded, EventType.FieldUpdated,
+        EventType.Created, EventType.Assigned, EventType.Updated, EventType.Moved, EventType.FieldAdded, EventType.FieldUpdated,
         EventType.CommentAdded, EventType.SubtaskAdded, EventType.SubtaskUpdated,
     ];
 
@@ -1042,6 +1068,13 @@ public sealed class TaskService(
         {
             await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} assigned you: {t.Title}", ct);
         }
+    }
+
+    /// <summary>An agent gave the user a subtask: tell the user through the agent's notify route, as for a task.</summary>
+    private async Task NotifySubtaskForUserAsync(ActivityEvent ev, TaskItem t, ActorInfo me, int? assigneeId, string subtaskTitle, CancellationToken ct)
+    {
+        if (!me.IsAgent || assigneeId is not { } who || (await ActorsAsync(ct)).GetValueOrDefault(who)?.Kind != ActorKind.Human) return;
+        await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} assigned you a subtask: {subtaskTitle} (on {t.Title})", ct);
     }
 
     private async Task UpsertOutboxAsync(OutboxKind kind, TaskItem t, int target, ActivityEvent ev, string? payload, CancellationToken ct)

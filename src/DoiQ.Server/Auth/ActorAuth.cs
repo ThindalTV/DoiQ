@@ -17,6 +17,9 @@ public static class ActorClaims
     public const string ApiKeyScheme = "ApiKey";
     public const string ApiKeyHeader = "X-Api-Key";
 
+    /// <summary>The login cookie's password stamp; a cookie whose stamp is out of date is rejected.</summary>
+    public const string SessionStamp = "session_stamp";
+
     public static ClaimsPrincipal ToPrincipal(ActorInfo a, string scheme)
     {
         var id = new ClaimsIdentity(

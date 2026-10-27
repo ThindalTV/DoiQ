@@ -76,7 +76,7 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
     }
 
     [Fact]
-    public async Task MoveTask_AgentOnTheUsersTask_FailsWithAdviceToComment()
+    public async Task MoveTask_AgentOnTheUsersTask_MovesItForTheUser()
     {
         // Arrange
         var task = await _f.Host.UserCreateAsync("mine " + Guid.NewGuid().ToString("N"), assignee: "User", status: BoardStatus.Waiting);
@@ -85,8 +85,24 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
         var result = await CallAsync(_f.Hermes, "move_task", ("taskId", task.Task.Id), ("status", "Done"));
 
         // Assert
+        Assert.NotEqual(true, result.IsError);
+        var after = await _f.Host.UserGetAsync(task.Task.Id);
+        Assert.Equal(BoardStatus.Done, after.Task.Status);
+        Assert.Equal("User", after.Task.Assignee);
+    }
+
+    [Fact]
+    public async Task MoveTask_AgentOnAnotherAgentsTask_FailsWithAdviceToComment()
+    {
+        // Arrange
+        var task = await _f.Host.UserCreateAsync("odin's " + Guid.NewGuid().ToString("N"), assignee: "Odin", status: BoardStatus.Waiting);
+
+        // Act
+        var result = await CallAsync(_f.Hermes, "move_task", ("taskId", task.Task.Id), ("status", "Doing"));
+
+        // Assert
         Assert.True(result.IsError);
-        Assert.Contains("Comment on the user's tasks", result.Text());
+        Assert.Contains("You can only comment on it", result.Text());
     }
 
     [Fact]
