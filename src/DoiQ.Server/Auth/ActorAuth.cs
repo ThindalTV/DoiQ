@@ -28,6 +28,7 @@ public static class ActorClaims
             new Claim("actor_kind", a.Kind.ToString()),
             new Claim("actor_initials", a.Initials),
             new Claim("actor_triage", a.IsTriage.ToString()),
+            new Claim("actor_dispatcher", a.IsDispatcher.ToString()),
             new Claim(ClaimTypes.Name, a.Name),
         ], scheme);
         return new ClaimsPrincipal(id);
@@ -39,7 +40,7 @@ public static class ActorClaims
         if (!int.TryParse(p.FindFirstValue("actor_id"), out var id)) return null;
         var kind = Enum.TryParse<ActorKind>(p.FindFirstValue("actor_kind"), out var k) ? k : ActorKind.Human;
         return new ActorInfo(id, kind, p.FindFirstValue(ClaimTypes.Name) ?? "?", p.FindFirstValue("actor_initials") ?? "?",
-            bool.TryParse(p.FindFirstValue("actor_triage"), out var t) && t);
+            bool.TryParse(p.FindFirstValue("actor_triage"), out var t) && t, bool.TryParse(p.FindFirstValue("actor_dispatcher"), out var d) && d);
     }
 }
 

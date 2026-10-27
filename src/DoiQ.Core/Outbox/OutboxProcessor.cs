@@ -48,7 +48,7 @@ public sealed class OutboxProcessor(DoiQDbContext db, HttpClient http, TimeProvi
                 var evActor = row.Event is null ? null : actors.GetValueOrDefault(row.Event.ActorId)?.Name;
                 var boardName = await db.Boards.AsNoTracking().Where(b => b.Id == row.BoardId).Select(b => b.Name).FirstOrDefaultAsync(ct);
                 var body = row.Kind == OutboxKind.Todo
-                    ? JsonSerializer.Serialize(new { eventId = row.EventId, boardId = row.BoardId, boardName, taskId = row.TaskId, type = row.Event?.Type.ToString(), actor = evActor, title, at = row.Event?.At })
+                    ? JsonSerializer.Serialize(new { eventId = row.EventId, boardId = row.BoardId, boardName, taskId = row.TaskId, type = row.Event?.Type.ToString(), actor = evActor, title, at = row.Event?.At, reason = row.PayloadJson })
                     : JsonSerializer.Serialize(new { eventId = row.EventId, boardId = row.BoardId, boardName, taskId = row.TaskId, message = row.PayloadJson ?? title });
                 var ts = time.GetUtcNow().ToUnixTimeSeconds().ToString();
                 using var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new StringContent(body, Encoding.UTF8, "application/json") };

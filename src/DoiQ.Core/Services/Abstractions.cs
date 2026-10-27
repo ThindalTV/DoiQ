@@ -3,7 +3,7 @@ using DoiQ.Shared.Enums;
 
 namespace DoiQ.Core.Services;
 
-public sealed record ActorInfo(int Id, ActorKind Kind, string Name, string Initials, bool IsTriage)
+public sealed record ActorInfo(int Id, ActorKind Kind, string Name, string Initials, bool IsTriage, bool IsDispatcher = false)
 {
     public bool IsHuman => Kind == ActorKind.Human;
     public bool IsAgent => Kind == ActorKind.Agent;

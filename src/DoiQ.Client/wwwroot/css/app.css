@@ -461,6 +461,10 @@ input.field { width: 100%; background: var(--surface); }
 .reply .row { display: flex; align-items: center; gap: 12px; }
 .reply .row .hint { font-size: 12px; color: var(--ink-muted); }
 .reply .row .hint kbd { color: var(--ink); }
+.reply .ask-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.reply .ask-row .hint { font-size: 12px; color: var(--ink-muted); }
+.comment .mentions .waiting { color: var(--ink); }
+.seg .via { font-size: 12px; color: var(--ink-muted); }
 .reply .row .btn { margin-left: auto; }
 
 .drawer-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 14px 24px; border-top: 1px solid var(--border); background: var(--surface-raised); }
@@ -527,6 +531,10 @@ code { font-family: var(--font-mono); font-size: 13px; }
 .inline { display: flex; gap: 8px; }
 .agent-form input.field { width: 100%; }
 .agent-form .check-label { color: var(--ink); font-size: 14px; }
+.agent-form .stack { display: flex; flex-direction: column; gap: 6px; }
+.agent-form textarea.field { width: 100%; resize: vertical; }
+.agent-form .hint { font-size: 12px; color: var(--ink-muted); }
+.agent-facts .resp { white-space: pre-line; }
 .secret-panel {
     display: flex; flex-direction: column; gap: 12px; padding: 16px 18px;
     background: var(--surface-strong); border: 2px solid var(--lilac); border-radius: 4px; box-shadow: var(--shadow-glow);

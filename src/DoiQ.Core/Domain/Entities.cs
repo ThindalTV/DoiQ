@@ -14,6 +14,10 @@ public class Actor
     public string? WebhookSecret { get; set; }
     public string? NotifyUrl { get; set; }
     public bool IsTriage { get; set; }
+    /// <summary>Gets the "any agent" tasks and passes each to the agent best placed to do it (itself included). At most one.</summary>
+    public bool IsDispatcher { get; set; }
+    /// <summary>What the agent does and does not do, in its own words or the user's; the dispatcher reads it.</summary>
+    public string? Responsibilities { get; set; }
     public bool IsActive { get; set; } = true;
     public DateTime CreatedAt { get; set; }
     /// <summary>Last successful API-key authentication (written at most once a minute).</summary>
@@ -63,6 +67,8 @@ public class TaskItem
     public long Version { get; set; }
     public int? ClaimedById { get; set; }
     public DateTime? ClaimExpiresAt { get; set; }
+    /// <summary>Agent comments that @mentioned another agent since the user last commented (the loop guard).</summary>
+    public int AgentMentionHops { get; set; }
 
     public List<InfoField> Fields { get; set; } = [];
     public List<Comment> Comments { get; set; } = [];
@@ -100,6 +106,21 @@ public class Comment
     public string Body { get; set; } = "";
     public DateTime CreatedAt { get; set; }
     public DateTime? EditedAt { get; set; }
+}
+
+/// <summary>An @mention in a comment: the mentioned actor is asked for input. Open until it answers (comment, field or mark_handled).</summary>
+public class Mention
+{
+    public int Id { get; set; }
+    public int TaskId { get; set; }
+    public int CommentId { get; set; }
+    public Comment? Comment { get; set; }
+    public int MentionedId { get; set; }
+    public int ById { get; set; }
+    /// <summary>The CommentAdded event that made it (not a FK, like ActivityEvent.TaskId).</summary>
+    public long EventId { get; set; }
+    public DateTime CreatedAt { get; set; }
+    public DateTime? AnsweredAt { get; set; }
 }
 
 /// <summary>The change log; its Id is the polling/catch-up cursor. TaskId is deliberately not a FK so Deleted events survive.</summary>

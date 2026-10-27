@@ -108,6 +108,7 @@
                             <span class="av av-agent av-lg">@agent.Initials</span>
                             <h4>@agent.Name</h4>
                             @if (agent.IsTriage) { <span class="badge-new">Triage</span> }
+                            @if (agent.IsDispatcher) { <span class="badge-new">Dispatcher</span> }
                             <span class="status @(agent.IsActive ? "on" : "off")">@(agent.IsActive ? "Active" : "Inactive")</span>
                         </header>
 
@@ -119,6 +120,7 @@
                         {
                             <dl class="agent-facts">
                                 <dt>Initials</dt><dd>@agent.Initials</dd>
+                                <dt>Responsibilities</dt><dd class="resp">@(agent.Responsibilities ?? (_asked.Contains(agent.Id) ? "Asked; waiting for the agent to answer" : "Not described yet"))</dd>
                                 <dt>Webhook URL</dt><dd>@(agent.WebhookUrl ?? "Not set")@(agent.HasWebhookSecret ? " (secret set)" : "")</dd>
                                 <dt>Notify URL</dt><dd>@(agent.NotifyUrl ?? "Not set")</dd>
                                 <dt>Last seen</dt><dd>@(agent.LastSeenAt is { } seen ? Fmt.Ago(new DateTimeOffset(DateTime.SpecifyKind(seen, DateTimeKind.Utc))) : "Never")</dd>
@@ -133,6 +135,10 @@
                                 else
                                 {
                                     <button type="button" class="btn btn-sm" @onclick="() => _confirmRotate = agent.Id">Rotate key</button>
+                                }
+                                @if (agent.IsActive)
+                                {
+                                    <button type="button" class="btn btn-sm" @onclick="() => Ask(agent)">Ask it to describe itself</button>
                                 }
                                 <button type="button" class="btn btn-sm" @onclick="() => SetActive(agent, !agent.IsActive)">@(agent.IsActive ? "Deactivate" : "Activate")</button>
                             </div>
@@ -342,7 +348,13 @@
 
     private Task Create(AgentForm.AgentFormModel m) => Run(async () =>
     {
-        var r = await Api.CreateAgentAsync(new CreateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl)));
+        var r = await Api.CreateAgentAsync(new CreateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl),
+            m.IsDispatcher, Blank(m.Responsibilities)));
+        if (m.AskToDescribe)
+        {
+            await Api.AskForResponsibilities(r.Agent.Id, _cts.Token);
+            _asked.Add(r.Agent.Id);
+        }
         var items = new List<(string, string)> { ("API key", r.ApiKey) };
         if (!string.IsNullOrEmpty(r.WebhookSecret)) items.Add(("Webhook secret", r.WebhookSecret));
         _secrets = new Secrets($"{r.Agent.Name} was added", items);
@@ -352,7 +364,8 @@
 
     private Task Update(AgentAdminDto agent, AgentForm.AgentFormModel m) => Run(async () =>
     {
-        await Api.UpdateAgentAsync(agent.Id, new UpdateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl)));
+        await Api.UpdateAgentAsync(agent.Id, new UpdateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl),
+            m.IsDispatcher, Blank(m.Responsibilities)));
         if (!string.IsNullOrWhiteSpace(m.WebhookSecret))
             _secrets = new Secrets($"New webhook secret for {m.Name.Trim()}", [("Webhook secret", m.WebhookSecret.Trim())]);
         _editId = null;
@@ -364,6 +377,16 @@
         var r = await Api.RotateAgentKeyAsync(agent.Id);
         _secrets = new Secrets($"New API key for {agent.Name}", [("API key", r.ApiKey)]);
         _confirmRotate = null;
+    });
+
+    /// <summary>Agents asked to describe themselves in this visit, until they answer.</summary>
+    private readonly HashSet<int> _asked = [];
+
+    private Task Ask(AgentAdminDto agent) => Run(async () =>
+    {
+        await Api.AskForResponsibilities(agent.Id, _cts.Token);
+        _asked.Add(agent.Id);
+        Notices.Info($"{agent.Name} has a task asking it to describe its responsibilities. Its answer shows up here.");
     });
 
     private Task SetActive(AgentAdminDto agent, bool active) => Run(async () =>

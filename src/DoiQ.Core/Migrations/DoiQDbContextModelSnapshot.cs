@@ -74,6 +74,9 @@ namespace DoiQ.Core.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsDispatcher")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("IsTriage")
                         .HasColumnType("INTEGER");
 
@@ -91,6 +94,10 @@ namespace DoiQ.Core.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<string>("NotifyUrl")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Responsibilities")
+                        .HasMaxLength(2000)
                         .HasColumnType("TEXT");
 
                     b.Property<string>("WebhookSecret")
@@ -219,6 +226,46 @@ namespace DoiQ.Core.Migrations
                         .IsUnique();
 
                     b.ToTable("Fields");
+                });
+
+            modelBuilder.Entity("DoiQ.Core.Domain.Mention", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime?>("AnsweredAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ById")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("CommentId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("EventId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("MentionedId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("TaskId")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ById");
+
+                    b.HasIndex("CommentId");
+
+                    b.HasIndex("TaskId");
+
+                    b.HasIndex("MentionedId", "AnsweredAt");
+
+                    b.ToTable("Mentions");
                 });
 
             modelBuilder.Entity("DoiQ.Core.Domain.OutboxMessage", b =>
@@ -372,6 +419,9 @@ namespace DoiQ.Core.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("INTEGER");
 
+                    b.Property<int>("AgentMentionHops")
+                        .HasColumnType("INTEGER");
+
                     b.Property<bool>("AssignedToPool")
                         .HasColumnType("INTEGER");
 
@@ -501,6 +551,35 @@ namespace DoiQ.Core.Migrations
                         .HasForeignKey("TaskId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("DoiQ.Core.Domain.Mention", b =>
+                {
+                    b.HasOne("DoiQ.Core.Domain.Actor", null)
+                        .WithMany()
+                        .HasForeignKey("ById")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoiQ.Core.Domain.Comment", "Comment")
+                        .WithMany()
+                        .HasForeignKey("CommentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DoiQ.Core.Domain.Actor", null)
+                        .WithMany()
+                        .HasForeignKey("MentionedId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("DoiQ.Core.Domain.TaskItem", null)
+                        .WithMany()
+                        .HasForeignKey("TaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Comment");
                 });
 
             modelBuilder.Entity("DoiQ.Core.Domain.OutboxMessage", b =>

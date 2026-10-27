@@ -39,7 +39,7 @@ public static class TaskMapper
             Fields = d.Fields.Select(f => new InfoFieldVm(f.Id, f.Label, f.Value, f.Author, At(f.UpdatedAt),
                 IsNew: unread && f.AuthorId != me.Id && f.UpdatedAt > mine)).ToList(),
             // Exact: the server flags a comment when it is someone else's and newer than the caller's seen position.
-            Comments = d.Comments.Select(c => new CommentVm(c.Id, c.Author, c.Body, At(c.CreatedAt), IsNew: c.Unread, EventId: c.EventId)).ToList(),
+            Comments = d.Comments.Select(c => new CommentVm(c.Id, c.Author, c.Body, At(c.CreatedAt), IsNew: c.Unread, EventId: c.EventId, Mentions: c.Mentions)).ToList(),
             SeenBy = (d.SeenBy ?? []).Where(s => s.ActorId != me.Id).Select(s => new SeenByVm(s.Actor, s.SeenThroughEventId)).ToList(),
             Counts = null,   // the lists are here: they are the counts
         };

@@ -13,7 +13,7 @@ namespace DoiQ.Server.Mcp;
 /// are enforced in TaskService and surface as tool errors whose text says what to do instead.
 /// </summary>
 [McpServerToolType]
-public sealed class DoiQTools(TaskService tasks, BoardService boards)
+public sealed class DoiQTools(TaskService tasks, BoardService boards, AgentAdminService agents, ICurrentActor current)
 {
     private static BoardStatus ParseStatus(string s) => EnumInput.Parse<BoardStatus>(s, "status");
 
@@ -47,8 +47,21 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     [McpServerTool(Name = "list_boards", ReadOnly = true), Description("The boards, each with id, name and how many tasks are open (not Done) and done. Boards are fully separate and a task never moves between them. Your inbox spans every board; every task you get back says which board it is on (boardId, boardName). You cannot add, rename or delete boards: only the user can.")]
     public Task<IReadOnlyList<BoardDto>> ListBoards(CancellationToken ct) => Run(() => boards.ListAsync(ct));
 
-    [McpServerTool(Name = "get_inbox", ReadOnly = true), Description("Your queue across all boards (each item's task has boardId and boardName), oldest first: New tasks you triage (triage agent only), tasks or subtasks assigned to you that you have not handled or that the user touched since, and unclaimed pool ('any') tasks. A task the user assigns to you (or to the pool) from New lands in Waiting and is yours from then on: move it to Doing when you start, do the work, then move it to Done. If you cannot go on without something from the user, call ask_user. Work through it, then call mark_handled for each task you acted on or parked so it leaves the queue until the user acts again. Run this whenever you are woken and as a periodic sweep.")]
+    [McpServerTool(Name = "get_inbox", ReadOnly = true), Description("Your queue across all boards (each item's task has boardId and boardName), oldest first. Each item has a reason: " +
+        "'Mentioned' = someone @mentioned you in a comment to ask for your input: read the task (get_task), answer with add_comment or upsert_field, and leave the rest of the task alone (it is not yours unless it is assigned to you). " +
+        "'Triage' = a New task to triage (triage agent only). 'Assigned' / 'Subtask' = work assigned to you that you have not handled, or that the user or another agent touched since. " +
+        "'Dispatch' = an 'any agent' task for you to pass on (dispatcher only): do no work on it; call list_actors, pick the agent whose responsibilities fit best (yourself included) and assign_task it to them by name; if you picked yourself, carry on with it as your own task. " +
+        "'Pool' = an unclaimed 'any agent' task (only when there is no dispatcher): claim_task it if you can do it. " +
+        "A task the user assigns to you (or to 'any agent') from New lands in Waiting and is yours from then on: move it to Doing when you start, do the work, then move it to Done. If you cannot go on without something from the user, call ask_user. " +
+        "Work through it, then call mark_handled for each task you acted on or parked so it leaves the queue until someone acts again. Run this whenever you are woken and as a periodic sweep.")]
     public Task<IReadOnlyList<InboxItemDto>> GetInbox(CancellationToken ct) => Run(() => tasks.GetInboxAsync(ct));
+
+    [McpServerTool(Name = "list_actors", ReadOnly = true), Description("Who is on the board: the user and the active agents, each with name and, for agents, their responsibilities (what they do and do not do), isTriage and isDispatcher. Use the names with assign_task, and as @Name in a comment to ask someone for input.")]
+    public Task<IReadOnlyList<ActorDto>> ListActors(CancellationToken ct) => Run(() => tasks.GetActorsAsync(ct));
+
+    [McpServerTool(Name = "set_my_responsibilities"), Description("Describe what you are responsible for, in a few sentences: what you do, what you are good at, and what you leave to others. It replaces your current description. The dispatcher reads it to decide which agent gets a task; the user can also edit it in Settings. Call this when a task asks you to describe your responsibilities.")]
+    public Task<ActorDto> SetMyResponsibilities(string responsibilities, CancellationToken ct) =>
+        Run(() => agents.SetResponsibilities(current.Require().Id, responsibilities, ct));
 
     [McpServerTool(Name = "get_changes", ReadOnly = true), Description("Events since a cursor (event id), across all boards unless you pass boardId or boardName; each event says which board it is on. Store the returned nextCursor and pass it next time. Your own changes are left out. If hasMore is true, call again with nextCursor.")]
     public Task<EventFeedDto> GetChanges([Description("Last event id you processed; 0 for the beginning")] long after = 0, int limit = 100,
@@ -84,7 +97,7 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     public Task<TaskSummaryDto> MoveTask(int taskId, string status, int? beforeTaskId = null, int? afterTaskId = null, long? expectedVersion = null, CancellationToken ct = default) =>
         Run(() => tasks.Move(taskId, new MoveTaskRequest(ParseStatus(status), beforeTaskId, afterTaskId, expectedVersion), ct));
 
-    [McpServerTool(Name = "assign_task"), Description("Assign to a person or agent by name (e.g. 'User', 'Hermes'), to 'any' (the agent pool), or 'none' to unassign. Assigning a task to the user notifies them, so do it when you have finished work they should review. When you need information or a decision from them, use ask_user instead, so your question is recorded on the task.")]
+    [McpServerTool(Name = "assign_task"), Description("Assign to a person or agent by name (e.g. 'User', 'Hermes'), to 'any' (the agent pool, or the dispatcher when there is one), or 'none' to unassign. Assigning a task to another agent wakes it; assigning it to the user notifies them, so do that when you have finished work they should review. To only ask another agent something without handing the task over, @mention it in add_comment instead. When you need information or a decision from them, use ask_user instead, so your question is recorded on the task.")]
     public Task<TaskSummaryDto> AssignTask(int taskId, string assignee, long? expectedVersion = null, CancellationToken ct = default) =>
         Run(() => tasks.AssignAsync(taskId, new AssignRequest(assignee, expectedVersion), ct));
 
@@ -92,16 +105,18 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     public Task<TaskSummaryDto> AskUser(int taskId, string question, string? requestKey = null, CancellationToken ct = default) =>
         Run(() => tasks.AskUser(taskId, new AskUserRequest(question, requestKey), ct));
 
-    [McpServerTool(Name = "upsert_field"), Description("Add or update an info field by label (e.g. 'Email summary', 'Research', 'Result'). Re-running a step updates the same field instead of adding duplicates. Value is markdown.")]
+    [McpServerTool(Name = "upsert_field"), Description("Add or update an info field by label (e.g. 'Email summary', 'Research', 'Result'). Re-running a step updates the same field instead of adding duplicates. Value is markdown. Allowed on a task another agent holds while a comment there has @mentioned you for input (your field or comment answers it).")]
     public Task<InfoFieldDto> UpsertField(int taskId, string label, string value, CancellationToken ct) => Run(() => tasks.UpsertFieldAsync(taskId, new FieldRequest(label, value), ct));
 
-    [McpServerTool(Name = "add_comment"), Description("Post to the task's discussion thread (markdown). Allowed on every task, including tasks another agent holds: there it is the only thing you can do, so use it to ask questions or report. Pass requestKey to make a retry safe.")]
+    [McpServerTool(Name = "add_comment"), Description("Post to the task's discussion thread (markdown). Allowed on every task, including tasks another agent holds: there it is the only thing you can do, so use it to ask questions or report. " +
+        "Write @Name (an agent's or the user's name, see list_actors) to ask them for input without handing the task over: a mentioned agent is woken and answers in the thread or a field; the user is notified. " +
+        "Agents may @mention other agents only a few times per task (5 by default) until the user comments again; past that the comment is refused, so drop the @mention or use ask_user. Posting a comment also answers any @mention of you on the task. Pass requestKey to make a retry safe.")]
     public Task<CommentDto> AddComment(int taskId, string body, string? requestKey = null, CancellationToken ct = default) => Run(() => tasks.AddComment(taskId, new AddCommentRequest(body, requestKey), ct));
 
     [McpServerTool(Name = "mark_seen"), Description("Move your SeenThroughEventId on a task (throughEventId defaults to the latest event). Writes never imply seen.")]
     public Task<string> MarkSeen(int taskId, long? throughEventId = null, CancellationToken ct = default) => Run(async () => { await tasks.MarkSeen(taskId, throughEventId, ct); return "ok"; });
 
-    [McpServerTool(Name = "mark_handled"), Description("Record that you acted on or parked this task up to throughEventId (defaults to the latest event). It leaves your inbox until the user acts on it again. Call it after you finish a task from get_inbox, also when you decided to do nothing.")]
+    [McpServerTool(Name = "mark_handled"), Description("Record that you acted on or parked this task up to throughEventId (defaults to the latest event). It leaves your inbox until the user acts on it again. Call it after you finish a task from get_inbox, also when you decided to do nothing. It also closes any @mention of you on the task up to that event.")]
     public Task<string> MarkHandled(int taskId, long? throughEventId = null, CancellationToken ct = default) => Run(async () => { await tasks.MarkHandled(taskId, throughEventId, ct); return "ok"; });
 
     [McpServerTool(Name = "add_subtask"), Description("Add a checklist line inside a task (not a card). Assignee may be a person or agent name; a subtask assigned to the user wakes them, one assigned to an agent wakes that agent. Pass requestKey to make a retry safe.")]
@@ -112,7 +127,7 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards)
     public Task<SubtaskDto> UpdateSubtask(int taskId, int subtaskId, string? title = null, bool? done = null, string? assignee = null, CancellationToken ct = default) =>
         Run(() => tasks.UpdateSubtaskAsync(taskId, subtaskId, new UpdateSubtaskRequest(title, done, assignee), ct));
 
-    [McpServerTool(Name = "claim_task"), Description("Claim an unclaimed pool ('any') task for 15 minutes. Only one agent wins; the loser gets a conflict error and must leave the task alone. Renew with renew_claim while working; the claim holder becomes the assignee when it moves the task to Doing.")]
+    [McpServerTool(Name = "claim_task"), Description("Claim an unclaimed pool ('any') task for 15 minutes. When there is a dispatcher, only it may claim: other agents wait for it to assign the task. Only one agent wins; the loser gets a conflict error and must leave the task alone. Renew with renew_claim while working; the claim holder becomes the assignee when it moves the task to Doing.")]
     public Task<TaskSummaryDto> ClaimTask(int taskId, CancellationToken ct) => Run(() => tasks.ClaimAsync(taskId, ct));
 
     [McpServerTool(Name = "renew_claim"), Description("Extend your claim on a pool task by another 15 minutes. Only the current holder can renew.")]

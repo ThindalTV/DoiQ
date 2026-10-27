@@ -21,6 +21,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     private int _archiveAfterDays = 14;
     private DateTime _loadedAtUtc;
     private IReadOnlyList<string> _agentNames = [];
+    private string? _dispatcher;
     private PresenceVm _presence = new(0, null, null);
     private DateTime _presenceAt = DateTime.MinValue;
 
@@ -91,6 +92,8 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     public IReadOnlyList<string> Agents => _agentNames;
 
+    public string? Dispatcher => _dispatcher;
+
     public int ArchivedCount { get; private set; }
 
     public async Task<IReadOnlyList<TaskVm>> GetBoard(CancellationToken ct)
@@ -134,6 +137,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
         _boardId = boardId;
         _me = me;
         _agentNames = actors.Where(a => a.Kind == ActorKind.Agent).Select(a => a.Name).ToList();
+        _dispatcher = actors.FirstOrDefault(a => a.Kind == ActorKind.Agent && a.IsDispatcher)?.Name;
         _detailed.Clear();
         _offBoard.Clear();
         _shownThrough.Clear();
@@ -365,7 +369,7 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
             // Unknown here, or known by its counts only: the detail brings the new count (and an archived task stays off the board).
             if (_state.Find(m.TaskId) is null || !_detailed.Contains(m.TaskId)) return await RefreshAsync(m.TaskId);
             var c = m.Comment;
-            return _state.AddComment(m.TaskId, new CommentVm(c.Id, c.Author, c.Body, TaskMapper.At(c.CreatedAt), IsNew: byOther, EventId: m.EventId), unread: byOther);
+            return _state.AddComment(m.TaskId, new CommentVm(c.Id, c.Author, c.Body, TaskMapper.At(c.CreatedAt), IsNew: byOther, EventId: m.EventId, Mentions: c.Mentions), unread: byOther);
         });
     }
 
@@ -592,6 +596,9 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
 
     public Task SetAgentActiveAsync(int id, bool active) =>
         Send<object>(HttpMethod.Post, $"api/agents/{id}/{(active ? "activate" : "deactivate")}");
+
+    public Task AskForResponsibilities(int agentId, CancellationToken ct) =>
+        Send<object>(HttpMethod.Post, $"api/agents/{agentId}/ask-responsibilities", null, true, ct);
 
     // The calls that predate cancellation tokens; the board load, the archive and the search pass theirs.
     private Task<T?> Send<T>(HttpMethod method, string url, object? body = null, bool raiseUnauthorized = true) =>

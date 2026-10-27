@@ -12,6 +12,9 @@ public interface IDoiQApiClient
 
     IReadOnlyList<string> Agents { get; }
 
+    /// <summary>The agent that passes "any agent" tasks on to the best-placed agent, or null when there is none (the agents then race to claim them).</summary>
+    string? Dispatcher { get; }
+
     // ---- boards: the client shows one at a time; tasks, events and live updates are those of the selected board ----
 
     /// <summary>The boards as last read from the server (id order).</summary>
@@ -97,4 +100,7 @@ public interface IDoiQApiClient
     Task<AgentAdminDto> UpdateAgentAsync(int id, UpdateAgentRequest request);
     Task<RotatedKeyResult> RotateAgentKeyAsync(int id);
     Task SetAgentActiveAsync(int id, bool active);
+
+    /// <summary>Gives the agent a task asking it to describe its responsibilities; it fills them in itself when it picks the task up.</summary>
+    Task AskForResponsibilities(int agentId, CancellationToken ct);
 }

@@ -17,6 +17,8 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
 
     public IReadOnlyList<string> Agents { get; } = new[] { "Hermes", "Hermes 2" };
 
+    public string? Dispatcher => _agents.FirstOrDefault(a => a.IsDispatcher && a.IsActive)?.Name;
+
     public FakeDoiQApiClient()
     {
         _tasks = _byBoard[1];
@@ -225,7 +227,8 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     private readonly List<AgentAdminDto> _agents =
     [
         new(1, "Hermes", "H", true, true, "https://hermes.example/webhooks/doiq", null, true, DateTime.UtcNow.AddDays(-9), DateTime.UtcNow.AddMinutes(-2)),
-        new(2, "Hermes 2", "H2", false, true, null, "https://hermes.example/notify", false, DateTime.UtcNow.AddDays(-3), DateTime.UtcNow.AddHours(-5)),
+        new(2, "Hermes 2", "H2", false, true, null, "https://hermes.example/notify", false, DateTime.UtcNow.AddDays(-3), DateTime.UtcNow.AddHours(-5),
+            Responsibilities: "Content: newsletters, blog posts and social copy."),
     ];
 
 #pragma warning disable CS0067 // the fake never answers 401
@@ -271,7 +274,8 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     {
         if (string.IsNullOrWhiteSpace(r.Name)) throw new ApiException("Name is required.");
         var a = new AgentAdminDto(_nextAgent++, r.Name.Trim(), string.IsNullOrWhiteSpace(r.Initials) ? AssigneeVm.Initials(r.Name) : r.Initials.Trim(),
-            r.IsTriage, true, Blank(r.WebhookUrl), Blank(r.NotifyUrl), !string.IsNullOrEmpty(r.WebhookSecret), DateTime.UtcNow, null);
+            r.IsTriage, true, Blank(r.WebhookUrl), Blank(r.NotifyUrl), !string.IsNullOrEmpty(r.WebhookSecret), DateTime.UtcNow, null, r.IsDispatcher, Blank(r.Responsibilities));
+        if (r.IsDispatcher) ClearOtherDispatchers(a.Id);
         _agents.Add(a);
         return Task.FromResult(new CreatedAgentResult(a, RandomKey(), Blank(r.WebhookSecret)));
     }
@@ -284,10 +288,27 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
         _agents[i] = o with
         {
             Name = r.Name.Trim(), Initials = string.IsNullOrWhiteSpace(r.Initials) ? AssigneeVm.Initials(r.Name) : r.Initials.Trim(),
-            IsTriage = r.IsTriage, WebhookUrl = Blank(r.WebhookUrl), NotifyUrl = Blank(r.NotifyUrl),
+            IsTriage = r.IsTriage, IsDispatcher = r.IsDispatcher, Responsibilities = Blank(r.Responsibilities), WebhookUrl = Blank(r.WebhookUrl), NotifyUrl = Blank(r.NotifyUrl),
             HasWebhookSecret = o.HasWebhookSecret || !string.IsNullOrWhiteSpace(r.WebhookSecret),
         };
+        if (r.IsDispatcher) ClearOtherDispatchers(id);
         return Task.FromResult(_agents[i]);
+    }
+
+    /// <summary>As on the server: at most one dispatcher.</summary>
+    private void ClearOtherDispatchers(int keepId)
+    {
+        for (var i = 0; i < _agents.Count; i++)
+            if (_agents[i].Id != keepId && _agents[i].IsDispatcher) _agents[i] = _agents[i] with { IsDispatcher = false };
+    }
+
+    /// <summary>The asks the fake received, newest last (the fake has no agents to answer them).</summary>
+    public List<int> ResponsibilityAsks { get; } = [];
+
+    public Task AskForResponsibilities(int agentId, CancellationToken ct)
+    {
+        ResponsibilityAsks.Add(agentId);
+        return Task.CompletedTask;
     }
 
     public Task<RotatedKeyResult> RotateAgentKeyAsync(int id) => Task.FromResult(new RotatedKeyResult(RandomKey()));

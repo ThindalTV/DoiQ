@@ -17,7 +17,8 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
     private static string Base64Url(byte[] bytes) => Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static AgentAdminDto ToDto(Actor a) =>
-        new(a.Id, a.Name, a.Initials, a.IsTriage, a.IsActive, a.WebhookUrl, a.NotifyUrl, !string.IsNullOrEmpty(a.WebhookSecret), a.CreatedAt, a.LastSeenAt);
+        new(a.Id, a.Name, a.Initials, a.IsTriage, a.IsActive, a.WebhookUrl, a.NotifyUrl, !string.IsNullOrEmpty(a.WebhookSecret), a.CreatedAt, a.LastSeenAt,
+            a.IsDispatcher, a.Responsibilities);
 
     public async Task<IReadOnlyList<AgentAdminDto>> ListAsync(CancellationToken ct = default) =>
         (await db.Actors.AsNoTracking().Where(a => a.Kind == ActorKind.Agent).OrderBy(a => a.Id).ToListAsync(ct)).Select(ToDto).ToList();
@@ -31,12 +32,14 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
         var agent = new Actor
         {
             Kind = ActorKind.Agent, Name = name, Initials = InitialsFor(req.Initials, name),
-            ApiKeyHash = ApiKeyHasher.Hash(key), IsTriage = req.IsTriage,
+            ApiKeyHash = ApiKeyHasher.Hash(key), IsTriage = req.IsTriage, IsDispatcher = req.IsDispatcher,
+            Responsibilities = CleanResponsibilities(req.Responsibilities),
             WebhookUrl = Clean(req.WebhookUrl), NotifyUrl = Clean(req.NotifyUrl), WebhookSecret = secret ?? generated,
             IsActive = true, CreatedAt = time.GetUtcNow().UtcDateTime,
         };
         db.Actors.Add(agent);
         if (req.IsTriage) await ClearOtherTriageAsync(null, ct);
+        if (req.IsDispatcher) await ClearOtherDispatcherAsync(null, ct);
         await SaveAsync(ct);
         return new CreatedAgentResult(ToDto(agent), key, generated);
     }
@@ -51,8 +54,20 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
         if (!string.IsNullOrWhiteSpace(req.WebhookSecret)) a.WebhookSecret = req.WebhookSecret;
         if (req.IsTriage) await ClearOtherTriageAsync(id, ct);
         a.IsTriage = req.IsTriage;
+        if (req.IsDispatcher) await ClearOtherDispatcherAsync(id, ct);
+        a.IsDispatcher = req.IsDispatcher;
+        a.Responsibilities = CleanResponsibilities(req.Responsibilities);
         await SaveAsync(ct);
         return ToDto(a);
+    }
+
+    /// <summary>An agent describing itself (the user asked it to, or it changed). Overwrites what was there.</summary>
+    public async Task<ActorDto> SetResponsibilities(int agentId, string? responsibilities, CancellationToken ct)
+    {
+        var a = await LoadAsync(agentId, ct);
+        a.Responsibilities = CleanResponsibilities(responsibilities);
+        await db.SaveChangesAsync(ct);
+        return new ActorDto(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage, a.IsDispatcher, a.Responsibilities);
     }
 
     /// <summary>The old key stops working immediately.</summary>
@@ -81,6 +96,21 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
     {
         var others = await db.Actors.Where(a => a.IsTriage && a.Id != exceptId).ToListAsync(ct);
         foreach (var o in others) o.IsTriage = false;
+    }
+
+    private async Task ClearOtherDispatcherAsync(int? exceptId, CancellationToken ct)
+    {
+        var others = await db.Actors.Where(a => a.IsDispatcher && a.Id != exceptId).ToListAsync(ct);
+        foreach (var o in others) o.IsDispatcher = false;
+    }
+
+    public const int MaxResponsibilities = 2000;
+
+    private static string? CleanResponsibilities(string? s)
+    {
+        var r = s?.Trim();
+        if (string.IsNullOrEmpty(r)) return null;
+        return r.Length > MaxResponsibilities ? throw new ValidationException($"Responsibilities are too long (max {MaxResponsibilities} characters).") : r;
     }
 
     private async Task<string> ValidateNameAsync(string? name, int? selfId, CancellationToken ct)

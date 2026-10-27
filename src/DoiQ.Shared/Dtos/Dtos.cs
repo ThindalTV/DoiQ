@@ -8,7 +8,8 @@ namespace DoiQ.Shared.Dtos;
 //  * SortOrder: higher = more important = displayed HIGHER in the lane (render lanes by SortOrder descending).
 //  * ExpectedVersion (optional): the Version the caller last saw; a mismatch returns HTTP 409.
 
-public sealed record ActorDto(int Id, ActorKind Kind, string Name, string Initials, bool IsTriage);
+/// <summary>IsDispatcher: this agent gets the "any agent" tasks and passes each one on. Responsibilities: what an agent does (null for the user).</summary>
+public sealed record ActorDto(int Id, ActorKind Kind, string Name, string Initials, bool IsTriage, bool IsDispatcher = false, string? Responsibilities = null);
 
 public sealed record TaskSummaryDto(
     int Id,
@@ -69,8 +70,13 @@ public sealed record InfoFieldDto(int Id, int TaskId, string Label, string Value
 /// <summary>
 /// EventId = the CommentAdded event that created it (0 when unknown); compare with a ReadMarker's SeenThroughEventId.
 /// Unread = someone else wrote it after the caller's SeenThroughEventId (per caller; false in hub broadcasts and in write answers).
+/// Mentions = the actors it @mentioned (asked for input), with whether each has answered yet.
 /// </summary>
-public sealed record CommentDto(int Id, int TaskId, int AuthorId, string Author, string Body, DateTime CreatedAt, DateTime? EditedAt, long EventId = 0, bool Unread = false);
+public sealed record CommentDto(int Id, int TaskId, int AuthorId, string Author, string Body, DateTime CreatedAt, DateTime? EditedAt, long EventId = 0, bool Unread = false,
+    IReadOnlyList<MentionDto>? Mentions = null);
+
+/// <summary>Answered: the mentioned actor has since commented, written a field or marked the task handled.</summary>
+public sealed record MentionDto(int ActorId, string Name, bool Answered);
 
 /// <summary>How far another actor has seen a task: everything through SeenThroughEventId (comments with an EventId at or below it).</summary>
 public sealed record SeenByDto(int ActorId, string Actor, ActorKind Kind, long SeenThroughEventId);
@@ -154,13 +160,23 @@ public sealed record AgentAdminDto(
     string? NotifyUrl,
     bool HasWebhookSecret,
     DateTime CreatedAt,
-    DateTime? LastSeenAt);
+    DateTime? LastSeenAt,
+    bool IsDispatcher = false,
+    string? Responsibilities = null);
 
-/// <summary>Blank WebhookSecret = the server generates one and returns it once.</summary>
-public sealed record CreateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null);
+/// <summary>
+/// Blank WebhookSecret = the server generates one and returns it once. At most one agent is triage and one is the
+/// dispatcher (setting the flag takes it from whoever had it); one agent may be both.
+/// </summary>
+public sealed record CreateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
+    bool IsDispatcher = false, string? Responsibilities = null);
 
-/// <summary>Full replace of name, initials, isTriage, webhookUrl and notifyUrl (null/blank URL clears it). WebhookSecret only changes when non-blank.</summary>
-public sealed record UpdateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null);
+/// <summary>Full replace of name, initials, flags, responsibilities, webhookUrl and notifyUrl (null/blank clears it). WebhookSecret only changes when non-blank.</summary>
+public sealed record UpdateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
+    bool IsDispatcher = false, string? Responsibilities = null);
+
+/// <summary>PUT /api/me/responsibilities (agents): the agent describes what it does, for the dispatcher. Blank clears it.</summary>
+public sealed record SetResponsibilitiesRequest(string? Responsibilities);
 
 /// <summary>ApiKey (and a generated WebhookSecret) are shown exactly once.</summary>
 public sealed record CreatedAgentResult(AgentAdminDto Agent, string ApiKey, string? WebhookSecret);

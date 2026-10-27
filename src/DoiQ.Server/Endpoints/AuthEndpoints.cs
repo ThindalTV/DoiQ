@@ -35,14 +35,14 @@ public static class AuthEndpoints
             return Results.Problem("Wrong password.", statusCode: 401);
         }
         var user = await SignInUser(ctx, actors, account, ct);
-        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage));
+        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage, user.IsDispatcher));
     }
 
     private static async Task<IResult> Setup(SetupRequest req, HttpContext ctx, ActorService actors, AccountService account, PasswordVerifyGate gate, CancellationToken ct)
     {
         await gate.Run(async () => { await account.Setup(req.Password, ct); return true; }, ct);
         var user = await SignInUser(ctx, actors, account, ct);
-        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage));
+        return Results.Ok(new ActorDto(user.Id, user.Kind, user.Name, user.Initials, user.IsTriage, user.IsDispatcher));
     }
 
     /// <summary>Issues the user's login cookie, stamped with the current password (see <see cref="AccountService.SessionStamp"/>).</summary>

@@ -16,4 +16,10 @@ public sealed class BoardOptions
 
     /// <summary>Changes to one task within this window are sent to an agent as a single webhook.</summary>
     public int DebounceSeconds { get; set; } = 30;
+
+    /// <summary>
+    /// How many agent comments on one task may @mention another agent before the user comments again. Past it an agent's
+    /// mention of an agent is refused, so two agents cannot keep waking each other. A comment by the user resets it.
+    /// </summary>
+    public int MaxAgentMentionHops { get; set; } = 5;
 }

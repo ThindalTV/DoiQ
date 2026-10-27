@@ -83,7 +83,7 @@ public sealed class BoardService(DoiQDbContext db, ICurrentActor current, IBoard
         await TaskService.RequestKeysFor(db, tasks.Select(t => t.Id)).ExecuteDeleteAsync(ct);
         await db.Outbox.Where(o => o.BoardId == id).ExecuteDeleteAsync(ct);          // pending and delivered; they reference the events
         await db.Events.Where(e => e.BoardId == id).ExecuteDeleteAsync(ct);
-        await tasks.ExecuteDeleteAsync(ct);                                           // fields, comments, subtasks and read markers cascade
+        await tasks.ExecuteDeleteAsync(ct);                                           // fields, comments, subtasks, mentions and read markers cascade
         await db.Boards.Where(b => b.Id == id).ExecuteDeleteAsync(ct);
         await tx.CommitAsync(ct);
 

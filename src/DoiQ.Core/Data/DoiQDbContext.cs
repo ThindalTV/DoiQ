@@ -27,6 +27,7 @@ public class DoiQDbContext : DbContext
     public DbSet<ActivityEvent> Events => Set<ActivityEvent>();
     public DbSet<ReadMarker> ReadMarkers => Set<ReadMarker>();
     public DbSet<OutboxMessage> Outbox => Set<OutboxMessage>();
+    public DbSet<Mention> Mentions => Set<Mention>();
     public DbSet<RequestKey> RequestKeys => Set<RequestKey>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
 
@@ -51,6 +52,7 @@ public class DoiQDbContext : DbContext
             e.HasIndex(x => x.ApiKeyHash).IsUnique();
             e.Property(x => x.Name).HasMaxLength(64);
             e.Property(x => x.Initials).HasMaxLength(8);
+            e.Property(x => x.Responsibilities).HasMaxLength(Services.AgentAdminService.MaxResponsibilities);
         });
 
         b.Entity<Board>(e =>
@@ -98,6 +100,16 @@ public class DoiQDbContext : DbContext
         b.Entity<Comment>(e =>
         {
             e.HasOne<Actor>().WithMany().HasForeignKey(x => x.AuthorId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        b.Entity<Mention>(e =>
+        {
+            e.HasIndex(x => new { x.MentionedId, x.AnsweredAt });
+            e.HasIndex(x => x.TaskId);
+            e.HasOne<TaskItem>().WithMany().HasForeignKey(x => x.TaskId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne(x => x.Comment).WithMany().HasForeignKey(x => x.CommentId).OnDelete(DeleteBehavior.Cascade);
+            e.HasOne<Actor>().WithMany().HasForeignKey(x => x.MentionedId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne<Actor>().WithMany().HasForeignKey(x => x.ById).OnDelete(DeleteBehavior.Restrict);
         });
 
         b.Entity<ActivityEvent>(e =>

@@ -16,7 +16,7 @@ public sealed class ActorService(DoiQDbContext db, TimeProvider? time = null, IL
     private readonly TimeProvider _time = time ?? TimeProvider.System;
     private static readonly TimeSpan SeenThrottle = TimeSpan.FromMinutes(1);
 
-    public static ActorInfo ToInfo(Actor a) => new(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage);
+    public static ActorInfo ToInfo(Actor a) => new(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage, a.IsDispatcher);
 
     /// <summary>
     /// Ensures the user exists. Agents are managed from the UI; any agents given here (config/env) are create-only:
@@ -71,5 +71,5 @@ public sealed class ActorService(DoiQDbContext db, TimeProvider? time = null, IL
 
     public async Task<IReadOnlyList<ActorDto>> ListAsync(CancellationToken ct = default) =>
         await db.Actors.AsNoTracking().Where(a => a.IsActive).OrderBy(a => a.Id)
-            .Select(a => new ActorDto(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage)).ToListAsync(ct);
+            .Select(a => new ActorDto(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage, a.IsDispatcher, a.Responsibilities)).ToListAsync(ct);
 }

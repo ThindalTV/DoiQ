@@ -236,13 +236,28 @@ public class OutboxProcessorTests
     }
 
     [Fact]
-    public async Task CreateAsync_TaskByAnAgentForAnotherAgent_QueuesNothing()
+    public async Task CreateAsync_TaskByAnAgentForAnotherAgent_WakesThatAgentOnly()
     {
         // Arrange
         using var h = new Harness();
 
         // Act
         await h.CreateAsync(h.Hermes, "delegated", BoardStatus.Waiting, "Odin");
+
+        // Assert
+        await using var db = h.NewDb();
+        var row = Assert.Single(db.Outbox);
+        Assert.Equal((OutboxKind.Todo, h.Odin.Id), (row.Kind, row.TargetActorId));
+    }
+
+    [Fact]
+    public async Task CreateAsync_TaskByAnAgentForItself_QueuesNothing()
+    {
+        // Arrange
+        using var h = new Harness();
+
+        // Act
+        await h.CreateAsync(h.Hermes, "mine", BoardStatus.Waiting, "Hermes");
 
         // Assert
         await using var db = h.NewDb();

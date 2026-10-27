@@ -29,6 +29,12 @@ public static class ManagementEndpoints
         admin.MapPost("/agents/{id:int}/rotate-key", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.RotateKeyAsync(id, ct)));
         admin.MapPost("/agents/{id:int}/deactivate", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.SetActiveAsync(id, false, ct)));
         admin.MapPost("/agents/{id:int}/activate", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.SetActiveAsync(id, true, ct)));
+        // Gives the agent a task asking it to describe its responsibilities (it answers with PUT /api/me/responsibilities).
+        admin.MapPost("/agents/{id:int}/ask-responsibilities", async (int id, TaskService s, CancellationToken ct) =>
+        {
+            var r = await s.AskForResponsibilities(id, ct);
+            return Results.Created($"/api/tasks/{r.Task.Task.Id}", r);
+        });
         return app;
     }
 }

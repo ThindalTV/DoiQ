@@ -11,6 +11,20 @@
         <span class="k">Triage</span>
         <label class="check-label"><input type="checkbox" @bind="_m.IsTriage" />This agent triages new tasks</label>
 
+        <span class="k">Dispatcher</span>
+        <label class="check-label"><input type="checkbox" @bind="_m.IsDispatcher" />This agent gets “Any agent” tasks and gives each to the agent best placed to do it</label>
+
+        <label for="@Id("resp")">Responsibilities</label>
+        <div class="stack">
+            <textarea id="@Id("resp")" class="field" rows="3" maxlength="2000" aria-describedby="@Id("resp-hint")"
+                      placeholder="What this agent does, and what it leaves to others" @bind="_m.Responsibilities" @bind:event="oninput"></textarea>
+            <span id="@Id("resp-hint")" class="hint">The dispatcher reads this to decide who gets a task.</span>
+            @if (Existing is null)
+            {
+                <label class="check-label"><input type="checkbox" @bind="_m.AskToDescribe" />Ask the agent to fill this in itself</label>
+            }
+        </div>
+
         <label for="@Id("wh")">Webhook URL</label>
         <input id="@Id("wh")" class="field" type="url" placeholder="https://…" @bind="_m.WebhookUrl" @bind:event="oninput" />
 
@@ -46,7 +60,11 @@
     protected override void OnInitialized()
     {
         if (Existing is { } a)
-            _m = new AgentFormModel { Name = a.Name, Initials = a.Initials, IsTriage = a.IsTriage, WebhookUrl = a.WebhookUrl ?? "", NotifyUrl = a.NotifyUrl ?? "" };
+            _m = new AgentFormModel
+            {
+                Name = a.Name, Initials = a.Initials, IsTriage = a.IsTriage, IsDispatcher = a.IsDispatcher, Responsibilities = a.Responsibilities ?? "",
+                WebhookUrl = a.WebhookUrl ?? "", NotifyUrl = a.NotifyUrl ?? "",
+            };
     }
 
     private string Id(string part) => $"af-{Existing?.Id ?? 0}-{part}";
@@ -67,6 +85,10 @@
         public string Name { get; set; } = "";
         public string Initials { get; set; } = "";
         public bool IsTriage { get; set; }
+        public bool IsDispatcher { get; set; }
+        public string Responsibilities { get; set; } = "";
+        /// <summary>New agents only: give it a task asking it to describe its responsibilities (its answer replaces the box).</summary>
+        public bool AskToDescribe { get; set; } = true;
         public string WebhookUrl { get; set; } = "";
         public string WebhookSecret { get; set; } = "";
         public string NotifyUrl { get; set; } = "";

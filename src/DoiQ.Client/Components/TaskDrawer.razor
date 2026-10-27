@@ -1,6 +1,7 @@
 @inject IDoiQApiClient Api
 @inject IJSRuntime JS
 @inject NoticeService Notices
+@implements IDisposable
 
 <div class="scrim" @onclick="OnClose"></div>
 <aside class="drawer" role="dialog" aria-label="Task details">
@@ -46,7 +47,14 @@
                     <Avatar Assignee="AssigneeVm.ForAgent(AgentLabel)" Size="av-sm" />Agent: @AgentLabel
                     <Icon Name="chevron" Size="10" />
                 </button>
-                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.Pool)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.AnyAgent)">Any agent</button>
+                <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.Pool)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.AnyAgent)"
+                        title="@(Api.Dispatcher is { } d ? $"{d} picks the agent best placed to do it" : "The first free agent claims it")">
+                    <span>Any agent</span>
+                    @if (Api.Dispatcher is { } dispatcher)
+                    {
+                        <span class="via">via @dispatcher</span>
+                    }
+                </button>
                 <button type="button" aria-pressed="@Aria.Bool(Task.Assignee.Kind == AssigneeKind.None)" @onclick="() => OnAssign.InvokeAsync(AssigneeVm.Unassigned)">None</button>
             </div>
 
@@ -182,6 +190,15 @@
                             @if (_newCommentIds.Contains(c.Id)) { <span class="badge-new">New</span> }
                         </div>
                         <div class="md">@Md(c.Body)</div>
+                        @if (c.Mentions is { Count: > 0 } asked)
+                        {
+                            <div class="receipt mentions">
+                                Asked @foreach (var (m, i) in asked.Select((m, i) => (m, i)))
+                                {
+                                    @(i > 0 ? ", " : "")<span class="@(Answered(c, m) ? "answered" : "waiting")">@Fmt.Person(m.Name) (@(Answered(c, m) ? "answered" : "waiting"))</span>
+                                }
+                            </div>
+                        }
                         @if (c.IsUser && Task.SeenByFor(c) is { Count: > 0 } seenBy)
                         {
                             <div class="receipt">Seen by @string.Join(", ", seenBy)</div>
@@ -194,8 +211,19 @@
                 <label for="reply">Add to the discussion</label>
                 <textarea id="reply" class="field" rows="3" placeholder="Write a comment. Markdown works."
                           @bind="_reply" @bind:event="oninput" @onkeydown="ReplyKey"></textarea>
+                @if (Api.Agents.Count > 0)
+                {
+                    <div class="ask-row" role="group" aria-label="Ask an agent for input">
+                        <span class="hint">Ask for input:</span>
+                        @foreach (var name in Api.Agents)
+                        {
+                            var n = name;
+                            <button type="button" class="btn btn-sm" aria-label="@($"Mention {n}")" @onclick="() => Mention(n)">@@@n</button>
+                        }
+                    </div>
+                }
                 <div class="row">
-                    <span class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send</span>
+                    <span class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> to send. Write @@Name to ask someone without handing the task over.</span>
                     <button type="button" class="btn btn-primary" @onclick="SendReply">Send</button>
                 </div>
             </div>
@@ -423,6 +451,30 @@
         var body = _reply;
         _reply = "";
         await Save(() => Api.AddCommentAsync(Task.Id, body), _ => _reply = string.IsNullOrEmpty(_reply) ? body : body + "\n\n" + _reply);
+    }
+
+    private readonly CancellationTokenSource _cts = new();
+
+    /// <summary>Puts "@Name " into the reply (once) and goes back to typing.</summary>
+    private async Task Mention(string name)
+    {
+        var tag = "@" + name;
+        if (!_reply.Contains(tag, StringComparison.OrdinalIgnoreCase))
+            _reply = string.IsNullOrWhiteSpace(_reply) ? tag + " " : _reply.TrimEnd() + " " + tag + " ";
+        await JS.InvokeVoidAsync("doiq.focus", _cts.Token, "#reply");
+    }
+
+    /// <summary>
+    /// A mention counts as answered when the server said so when the task was loaded, or when the mentioned actor has
+    /// commented since (a live comment arrives without a reload; an answer in a field shows after the next one).
+    /// </summary>
+    private bool Answered(CommentVm asking, MentionDto m) =>
+        m.Answered || Task.Comments.Any(c => c.Id > asking.Id && c.Author.Equals(m.Name, StringComparison.OrdinalIgnoreCase));
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 
     private async Task Delete()

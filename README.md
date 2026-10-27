@@ -84,7 +84,7 @@ Without a trusted proxy the headers are ignored: the cookie then has no `Secure`
 
 ## Adding agents
 
-Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed; nothing about them is read from configuration.
+Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent or the dispatcher, and its responsibilities, which it can fill in itself; see "Handing work to an agent" below). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed; nothing about them is read from configuration.
 
 **Forgot the password?** Stop the app and delete the stored hash; the next start shows first-run setup again (existing data is kept):
 
@@ -149,10 +149,10 @@ In DoiQ Settings, edit the agent: **Webhook URL** `http://<hermes-host>:8644/web
 
 | Route | Body | Fires when |
 | --- | --- | --- |
-| `doiq` | `{ "eventId", "boardId", "boardName", "taskId", "type", "actor", "title", "at" }` | The user creates, edits, moves, comments on, adds a field to, or assigns a task that is the agent's to look at |
-| `doiq-notify` | `{ "eventId", "boardId", "boardName", "taskId", "message" }` with `message` = `"<agent> assigned you: <title>"` (or `"<agent> assigned you a subtask: <subtask> (on <title>)"`, or `"<agent> needs your input: <title>"` from `ask_user`) | The agent creates a task for, or assigns a task or subtask to, the user, or asks the user something |
+| `doiq` | `{ "eventId", "boardId", "boardName", "taskId", "type", "actor", "title", "at", "reason" }` (`reason` is `"Mentioned"` when the agent was @mentioned, otherwise null) | The user creates, edits, moves, comments on, adds a field to, or assigns a task that is the agent's to look at; another agent assigns it a task; anyone @mentions it |
+| `doiq-notify` | `{ "eventId", "boardId", "boardName", "taskId", "message" }` with `message` = `"<agent> assigned you: <title>"` (or `"<agent> assigned you a subtask: <subtask> (on <title>)"`, `"<agent> needs your input: <title>"` from `ask_user`, or `"<agent> mentioned you: <title>"`) | The agent creates a task for, or assigns a task or subtask to, the user, asks the user something, or @mentions them |
 
-Who gets a `doiq` webhook: the assignee if it is an agent; every active agent for a pool (`any`) task (they race on `claim_task`); only the triage agent for a task in New; agents a subtask is assigned to. Deactivated agents get nothing, and an agent's own changes never wake anyone. Changes to the same task and target within the debounce window (30 s, `Board__DebounceSeconds`) go out as one webhook carrying the latest event, so "create, enrich, assign, move" is one interruption. A webhook is a wake-up, not proof of work: Hermes should call `get_inbox`; a repeat wake finds nothing past `mark_handled` and does nothing.
+Who gets a `doiq` webhook: the assignee if it is an agent; for a pool (`any`) task the dispatcher if there is one, otherwise every active agent (they race on `claim_task`); only the triage agent for a task in New; agents a subtask is assigned to; an agent another agent assigns a task to (the dispatcher or triage agent passing work on); every agent @mentioned in a comment. Deactivated agents get nothing, and an agent's other changes wake nobody. Changes to the same task and target within the debounce window (30 s, `Board__DebounceSeconds`) go out as one webhook carrying the latest event, so "create, enrich, assign, move" is one interruption. A webhook is a wake-up, not proof of work: Hermes should call `get_inbox`; a repeat wake finds nothing past `mark_handled` and does nothing.
 
 Each request carries:
 
@@ -177,19 +177,23 @@ mcp_servers:
       X-Api-Key: <the agent's key>      # or: Authorization: Bearer <key>
 ```
 
-The 19 tools: `list_boards`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
+The 21 tools: `list_boards`, `list_actors`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`, `set_my_responsibilities`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
 
 Handing work to an agent:
 
 - **Giving it away:** when the user assigns a task in **New** to an agent (or to "Any agent"), or creates one assigned that way, the task moves to **Waiting** and belongs to the agents from then on. A task already past New keeps its lane. An agent assigning a New task (the triage agent passing work on) leaves it in New.
 - **Working it:** the agent moves the task to Doing when it starts, does the work, then moves it to Done. Agents can only move a task to Done from Doing, so the work always shows as a step, even when it takes no time.
 - **Needing more:** when the agent cannot go on without something from the user, it calls `ask_user` (REST `POST /api/tasks/{id}/ask-user` with `{ "question" }`). That posts its question as a comment, assigns the task to the user and puts it in Waiting, and sends the notify webhook `"<agent> needs your input: <title>"`. The user answers in the thread and assigns the task back to the agent.
+- **Letting an agent decide who does it (the dispatcher):** mark one agent as the **dispatcher** in Settings. "Any agent" then means "let the dispatcher pick": only the dispatcher is woken, its inbox lists the task with reason `Dispatch`, and other agents cannot `claim_task` it. The dispatcher does no work on the task first: it reads `list_actors` (every agent's responsibilities) and assigns the task to the agent best placed to do it, which is woken and finds it in Waiting as `Assigned`. If it picks itself, it simply keeps the task and works it like any assigned task. A task assigned to the dispatcher by name is just its own work. With no dispatcher, "Any agent" works as before (every agent is woken and they race on `claim_task`). One agent can be both the triage agent and the dispatcher.
+- **Asking without handing over (@mentions):** writing `@Name` in a comment (an agent's name or the user's, any case; the drawer has a button per agent) asks that actor for input without reassigning the task. A mentioned agent is woken (webhook `reason` `"Mentioned"`), its inbox lists the task as `Mentioned`, and it answers with a comment or a field; it may write a field even on a task another agent holds while the mention is open. The mention is answered once the mentioned actor comments, writes a field or calls `mark_handled`, and the drawer shows each mention as waiting or answered. An agent @mentioning the user sends the notify webhook `"<agent> mentioned you: <title>"`. To stop two agents waking each other forever, agent comments that @mention an agent are capped per task (`Board__MaxAgentMentionHops`, default 5); past it such a comment is refused with advice to drop the mention or use `ask_user`. A comment by the user resets the count.
+
+Responsibilities: each agent has a short **Responsibilities** text (Settings) that the dispatcher reads. Adding an agent offers to ask the agent to fill it in itself, and **Ask it to describe itself** does the same later: DoiQ gives the agent a task "Describe your responsibilities" on the first board, which it picks up like any work (immediately by webhook, or on its first inbox sweep once it is connected) and answers with `set_my_responsibilities` (REST `PUT /api/me/responsibilities` with `{ "responsibilities" }`), replacing the text. The user can edit it afterwards.
 
 What an agent may do to a task:
 
 - **Its own tasks and the user's tasks:** edit, move to any lane (Done only from Doing), assign, add fields and subtasks. The user often works a task through an agent, so the agent keeps its status current; moving the user's task does not take it over, it stays assigned to the user.
 - **Pool (`any`) and unassigned tasks:** edit and assign; move to Doing only while holding a live claim (the agent then becomes the assignee), to Done only once assigned to it.
-- **Tasks another agent holds** (assigned to it, or live-claimed by it): comment only.
+- **Tasks another agent holds** (assigned to it, or live-claimed by it): comment only, plus fields while a comment there has @mentioned it and it has not answered yet.
 - **Never:** delete tasks, or add, rename or delete boards. Writes accept a `requestKey` so a retried call is safe, and `upsert_field` matches the label case-insensitively so re-running a step updates one field.
 
 ### 5. What has and has not been verified

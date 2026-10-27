@@ -216,10 +216,11 @@ public sealed class TaskService(
             .OrderBy(m => m.ActorId)
             .Select(m => new SeenByDto(m.ActorId, Name(actors, m.ActorId), actors[m.ActorId].Kind, m.SeenThroughEventId)).ToList();
         var commentEvents = await CommentEventIdsAsync(t.Id, ct);
+        var mentions = await MentionsOfAsync(t.Id, ct);
         return new TaskDetailDto(
             summary, t.Description, Name(actors, t.CreatedById),
             t.Fields.OrderBy(f => f.CreatedAt).ThenBy(f => f.Id).Select(f => ToDto(f, actors)).ToList(),
-            t.Comments.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).Select(c => ToDto(c, actors, commentEvents.GetValueOrDefault(c.Id), viewer, mySeen)).ToList(),
+            t.Comments.OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).Select(c => ToDto(c, actors, commentEvents.GetValueOrDefault(c.Id), viewer, mySeen, mentions[c.Id])).ToList(),
             t.Subtasks.OrderBy(s => s.SortOrder).ThenBy(s => s.Id).Select(s => ToDto(s, actors)).ToList(),
             latest, mySeen, seenBy);
     }
@@ -232,7 +233,16 @@ public sealed class TaskService(
         var list = await db.Comments.AsNoTracking().Where(c => c.TaskId == taskId).OrderBy(c => c.CreatedAt).ThenBy(c => c.Id).ToListAsync(ct);
         var events = await CommentEventIdsAsync(taskId, ct);
         var seen = (await db.ReadMarkers.AsNoTracking().FirstOrDefaultAsync(m => m.TaskId == taskId && m.ActorId == me.Id, ct))?.SeenThroughEventId ?? 0;
-        return list.Select(c => ToDto(c, actors, events.GetValueOrDefault(c.Id), me, seen)).ToList();
+        var mentions = await MentionsOfAsync(taskId, ct);
+        return list.Select(c => ToDto(c, actors, events.GetValueOrDefault(c.Id), me, seen, mentions[c.Id])).ToList();
+    }
+
+    /// <summary>Comment id to the actors that comment @mentioned, each with whether it has answered.</summary>
+    private async Task<ILookup<int, MentionDto>> MentionsOfAsync(int taskId, CancellationToken ct)
+    {
+        var actors = await ActorsAsync(ct);
+        return (await db.Mentions.AsNoTracking().Where(m => m.TaskId == taskId).OrderBy(m => m.Id).ToListAsync(ct))
+            .ToLookup(m => m.CommentId, m => new MentionDto(m.MentionedId, Name(actors, m.MentionedId), m.AnsweredAt is not null));
     }
 
     /// <summary>Comment id to the id of the CommentAdded event that created it (read out of the event payloads).</summary>
@@ -256,7 +266,7 @@ public sealed class TaskService(
 
     public async Task<IReadOnlyList<ActorDto>> GetActorsAsync(CancellationToken ct = default) =>
         (await ActorsAsync(ct)).Values.Where(a => a.IsActive).OrderBy(a => a.Id)
-            .Select(a => new ActorDto(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage)).ToList();
+            .Select(a => new ActorDto(a.Id, a.Kind, a.Name, a.Initials, a.IsTriage, a.IsDispatcher, a.Responsibilities)).ToList();
 
     // ───────────────────────── create / update / move / assign / delete ─────────────────────────
 
@@ -349,6 +359,32 @@ public sealed class TaskService(
         After(() => PublishChangedAsync(ev, task));
         await RunAfterAsync();
         return new CreateTaskResult(await GetAsync(task.Id, ct), true);
+    }
+
+    public const string ResponsibilitiesTaskTitle = "Describe your responsibilities";
+
+    /// <summary>
+    /// The user asks an agent to describe what it does (from Settings, when adding it or later). DoiQ can only reach an
+    /// agent through its board, so this is a task on the first board, assigned to the agent: it arrives like any other
+    /// work (webhook, or the next inbox sweep once the agent is connected) and tells it to call set_my_responsibilities.
+    /// </summary>
+    public async Task<CreateTaskResult> AskForResponsibilities(int agentId, CancellationToken ct)
+    {
+        var me = Me;
+        if (!me.IsHuman) throw new ForbiddenException("Only the user asks an agent to describe itself.");
+        var agent = (await ActorsAsync(ct)).GetValueOrDefault(agentId) is { Kind: ActorKind.Agent, IsActive: true } a
+            ? a : throw new NotFoundException($"There is no active agent {agentId}.");
+        var board = (await BoardsAsync(ct)).Values.OrderBy(b => b.Id).First();
+        const string brief = """
+            The user is setting up who does what on DoiQ and wants to know what you take care of.
+
+            1. Write a few sentences on your responsibilities: what you do, what you are good at, and what you leave to others.
+            2. Save them with `set_my_responsibilities` (REST: `PUT /api/me/responsibilities` with `{ "responsibilities": "..." }`). This replaces what is there.
+            3. Move this task to Doing, then to Done.
+
+            The dispatcher reads every agent's responsibilities when it decides who gets an "any agent" task, and the user can edit yours in Settings.
+            """;
+        return await Create(new CreateTaskRequest(ResponsibilitiesTaskTitle, brief, Assignee: agent.Name, BoardId: board.Id), ct);
     }
 
     public async Task<TaskSummaryDto> UpdateAsync(int id, UpdateTaskRequest req, CancellationToken ct = default)
@@ -537,13 +573,14 @@ public sealed class TaskService(
     {
         var me = Me;
         var t = await LoadAsync(taskId, null, ct);
-        EnsureCanWrite(t, me);
+        await EnsureCanWriteFieldAsync(t, me, ct);
         var label = RequireLabel(req.Label);
         if (await db.Fields.AnyAsync(f => f.TaskId == taskId && f.Label == label, ct))
             throw new ConflictException($"A field labelled '{label}' already exists.");
         var now = Now;
         var f = new InfoField { TaskId = taskId, Label = label, Value = req.Value ?? "", AuthorId = me.Id, CreatedAt = now, UpdatedAt = now };
         db.Fields.Add(f);
+        await AnswerMentionsAsync(taskId, me.Id, null, ct);
         var ev = Record(t, EventType.FieldAdded, new { label });
         await PlanWakeupsAsync(ev, t, me, [], ct);
         await CommitAsync(ct);
@@ -555,7 +592,7 @@ public sealed class TaskService(
     {
         var me = Me;
         var t = await LoadAsync(taskId, null, ct);
-        EnsureCanWrite(t, me);
+        await EnsureCanWriteFieldAsync(t, me, ct);
         var label = RequireLabel(req.Label);
         var f = await db.Fields.FirstOrDefaultAsync(x => x.TaskId == taskId && x.Label == label, ct);
         var actors = await ActorsAsync(ct);
@@ -568,7 +605,7 @@ public sealed class TaskService(
     {
         var me = Me;
         var t = await LoadAsync(taskId, null, ct);
-        EnsureCanWrite(t, me);
+        await EnsureCanWriteFieldAsync(t, me, ct);
         var f = await db.Fields.FirstOrDefaultAsync(x => x.TaskId == taskId && x.Id == fieldId, ct) ?? throw new NotFoundException("Field not found.");
         var newLabel = string.IsNullOrWhiteSpace(req.Label) ? null : RequireLabel(req.Label);
         if (newLabel is not null && !newLabel.Equals(f.Label, StringComparison.OrdinalIgnoreCase)
@@ -582,6 +619,7 @@ public sealed class TaskService(
         if (newLabel is not null) f.Label = newLabel;
         f.Value = value;
         f.UpdatedAt = Now;
+        await AnswerMentionsAsync(t.Id, me.Id, null, ct);
         var ev = Record(t, EventType.FieldUpdated, new { fieldId = f.Id, label = f.Label });
         await PlanWakeupsAsync(ev, t, me, [], ct);
         await CommitAsync(ct);
@@ -623,16 +661,34 @@ public sealed class TaskService(
             var c0 = await db.Comments.AsNoTracking().FirstAsync(c => c.Id == prior, ct);
             return ToDto(c0, await ActorsAsync(ct));
         }
-        var c = new Comment { TaskId = taskId, AuthorId = me.Id, Body = body, CreatedAt = Now };
+        var actors = await ActorsAsync(ct);
+        var mentioned = FindMentions(body, actors.Values, me.Id);
+        // The loop guard: agents asking agents is capped until the user speaks again.
+        if (me.IsHuman) t.AgentMentionHops = 0;
+        else if (mentioned.Any(a => a.Kind == ActorKind.Agent))
+        {
+            if (t.AgentMentionHops >= _board.MaxAgentMentionHops)
+                throw new ForbiddenException($"Agents have @mentioned each other {t.AgentMentionHops} times on this task since the user last commented, the most allowed. " +
+                    "Post your comment without the @mention, or use ask_user to bring the user in; their next comment lifts the limit.");
+            t.AgentMentionHops++;
+        }
+
+        var now = Now;
+        var c = new Comment { TaskId = taskId, AuthorId = me.Id, Body = body, CreatedAt = now };
         db.Comments.Add(c);
+        var asked = mentioned.Select(a => new Mention { TaskId = taskId, Comment = c, MentionedId = a.Id, ById = me.Id, CreatedAt = now }).ToList();
+        db.Mentions.AddRange(asked);
+        await AnswerMentionsAsync(taskId, me.Id, null, ct);
         var ev = Record(t, EventType.CommentAdded, new { commentId = 0 });
         await PlanWakeupsAsync(ev, t, me, [], ct);
+        await PlanMentionWakeupsAsync(ev, t, me, mentioned, ct);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
         try
         {
             await CommitAsync(ct, tx, beforeCommit: async () =>
             {
                 ev.PayloadJson = JsonSerializer.Serialize(new { commentId = c.Id });
+                foreach (var m in asked) m.EventId = ev.Id;
                 RememberKey("comment", req.RequestKey, c.Id);
                 await db.SaveChangesAsync(ct);
             });
@@ -642,10 +698,44 @@ public sealed class TaskService(
             if (await RecoverKeyRace("comment", req.RequestKey, tx, ct) is not { } winner) throw;
             return ToDto(await db.Comments.AsNoTracking().FirstAsync(x => x.Id == winner, ct), await ActorsAsync(ct));
         }
-        var dto = ToDto(c, await ActorsAsync(ct), ev.Id);
+        var dto = ToDto(c, actors, ev.Id, mentions: asked.Select(m => new MentionDto(m.MentionedId, Name(actors, m.MentionedId), false)));
         After(() => broadcaster.CommentAddedAsync(new CommentAddedMessage(ev.Id, me.Id, me.Kind, taskId, dto, t.BoardId)));
         await RunAfterAsync();
         return dto;
+    }
+
+    /// <summary>
+    /// The active actors a comment @mentions, its author left out. A mention is "@" plus the actor's name (any case) with
+    /// no letter or digit on either side, so "ada@example.com" and "@Adam" do not mention Ada. Longer names are matched
+    /// first, so "@Hermes 2" mentions Hermes 2 and not Hermes.
+    /// </summary>
+    private static List<Actor> FindMentions(string body, IEnumerable<Actor> actors, int authorId)
+    {
+        var found = new List<Actor>();
+        var claimed = new HashSet<int>();   // start positions already read as a (longer) name
+        foreach (var a in actors.Where(a => a.IsActive && a.Id != authorId).OrderByDescending(a => a.Name.Length))
+        {
+            var needle = "@" + a.Name;
+            for (var i = body.IndexOf(needle, StringComparison.OrdinalIgnoreCase); i >= 0; i = body.IndexOf(needle, i + 1, StringComparison.OrdinalIgnoreCase))
+            {
+                var end = i + needle.Length;
+                if (claimed.Contains(i) || (i > 0 && IsNameChar(body[i - 1])) || (end < body.Length && IsNameChar(body[end]))) continue;
+                claimed.Add(i);
+                found.Add(a);
+                break;
+            }
+        }
+        return found;
+    }
+
+    private static bool IsNameChar(char c) => char.IsLetterOrDigit(c) || c == '_';
+
+    /// <summary>The actor has answered what it was asked on this task (up to an event; null = everything so far).</summary>
+    private async Task AnswerMentionsAsync(int taskId, int actorId, long? throughEventId, CancellationToken ct)
+    {
+        var open = await db.Mentions.Where(m => m.TaskId == taskId && m.MentionedId == actorId && m.AnsweredAt == null
+            && (throughEventId == null || m.EventId <= throughEventId)).ToListAsync(ct);
+        foreach (var m in open) m.AnsweredAt = Now;
     }
 
     // ───────────────────────── subtasks ─────────────────────────
@@ -755,6 +845,8 @@ public sealed class TaskService(
     {
         var me = Me;
         if (!me.IsAgent) throw new ForbiddenException("Only agents claim pool tasks.");
+        if (DispatcherOf(await ActorsAsync(ct)) is { } d && d.Id != me.Id)
+            throw new ForbiddenException($"{d.Name} dispatches 'any agent' tasks: leave this one alone, it will assign it to the agent best placed to do it.");
         var now = Now;
         var until = now.AddMinutes(_board.ClaimLeaseMinutes);
         await using var tx = await db.Database.BeginTransactionAsync(ct);
@@ -827,6 +919,7 @@ public sealed class TaskService(
             db.ReadMarkers.Add(m);
         }
         var before = m.SeenThroughEventId;
+        if (handled) await AnswerMentionsAsync(taskId, me.Id, target, ct);   // handled = it decided what to do about being asked, too
         if (handled) m.HandledThroughEventId = Math.Max(m.HandledThroughEventId, target);
         else m.SeenThroughEventId = Math.Max(m.SeenThroughEventId, target);
         await db.SaveChangesAsync(ct);
@@ -845,33 +938,46 @@ public sealed class TaskService(
         var latest = await LatestEventsAsync(tasks.Select(t => t.Id).ToList(), ct);
         var result = new List<(TaskItem T, string Reason)>();
 
+        var mentioned = (await db.Mentions.AsNoTracking().Where(m => m.MentionedId == me.Id && m.AnsweredAt == null)
+            .Select(m => m.TaskId).Distinct().ToListAsync(ct)).ToHashSet();
+
         if (me.IsHuman)
         {
             foreach (var t in tasks)
             {
                 if (t.AssigneeId == me.Id && t.Status == BoardStatus.Waiting) result.Add((t, "AssignedWaiting"));
+                else if (mentioned.Contains(t.Id)) result.Add((t, "Mentioned"));
                 else if (dtos[t.Id].Unread) result.Add((t, "Unread"));
             }
         }
         else
         {
             var markers = await db.ReadMarkers.AsNoTracking().Where(m => m.ActorId == me.Id).ToDictionaryAsync(m => m.TaskId, ct);
-            var humanIds = (await ActorsAsync(ct)).Values.Where(a => a.Kind == ActorKind.Human).Select(a => a.Id).ToList();
+            var actors = await ActorsAsync(ct);
+            var humanIds = actors.Values.Where(a => a.Kind == ActorKind.Human).Select(a => a.Id).ToList();
+            var dispatcher = DispatcherOf(actors);
             var ids = tasks.Select(t => t.Id).ToList();
-            var lastHuman = (await db.Events.AsNoTracking().Where(e => humanIds.Contains(e.ActorId) && ids.Contains(e.TaskId))
+            // What brings a handled task back: anything the user did, or another agent (the triage agent, the dispatcher) assigning it.
+            var meId = me.Id;
+            var lastPoke = (await db.Events.AsNoTracking()
+                    .Where(e => ids.Contains(e.TaskId) && (humanIds.Contains(e.ActorId) || (e.Type == EventType.Assigned && e.ActorId != meId)))
                     .GroupBy(e => e.TaskId).Select(g => new { g.Key, Max = g.Max(e => e.Id) }).ToListAsync(ct))
                 .ToDictionary(x => x.Key, x => x.Max);
             var subtaskTasks = (await db.Subtasks.AsNoTracking().Where(s => s.AssigneeId == me.Id && !s.Done).Select(s => s.TaskId).Distinct().ToListAsync(ct)).ToHashSet();
 
             foreach (var t in tasks)
             {
+                // Being asked for input counts even on a Done task: someone wants an answer.
+                if (mentioned.Contains(t.Id)) { result.Add((t, "Mentioned")); continue; }
                 if (t.Status == BoardStatus.Done) continue;
                 var handled = markers.TryGetValue(t.Id, out var mk) ? mk.HandledThroughEventId : 0;
-                var needs = handled == 0 || (lastHuman.TryGetValue(t.Id, out var h) && h > handled);
+                var needs = handled == 0 || (lastPoke.TryGetValue(t.Id, out var h) && h > handled);
+                var open = t.AssignedToPool && !ClaimLive(t, now);
                 if (me.IsTriage && t.Status == BoardStatus.New && needs) result.Add((t, "Triage"));
                 else if (t.AssigneeId == me.Id && needs) result.Add((t, "Assigned"));
                 else if (subtaskTasks.Contains(t.Id) && needs) result.Add((t, "Subtask"));
-                else if (t.AssignedToPool && !ClaimLive(t, now)) result.Add((t, "Pool"));
+                else if (open && dispatcher is null) result.Add((t, "Pool"));
+                else if (open && dispatcher?.Id == me.Id) result.Add((t, "Dispatch"));
             }
         }
 
@@ -965,6 +1071,21 @@ public sealed class TaskService(
         if (assignedToOtherAgent || claimedByOther)
             throw new ForbiddenException("Another agent holds this task. You can only comment on it.");
     }
+
+    /// <summary>As <see cref="EnsureCanWrite"/>, but an agent that was @mentioned on the task (and has not answered yet) may answer in a field.</summary>
+    private async Task EnsureCanWriteFieldAsync(TaskItem t, ActorInfo me, CancellationToken ct)
+    {
+        if (me.IsAgent && await db.Mentions.AnyAsync(m => m.TaskId == t.Id && m.MentionedId == me.Id && m.AnsweredAt == null, ct)) return;
+        try { EnsureCanWrite(t, me); }
+        catch (ForbiddenException)
+        {
+            throw new ForbiddenException("Another agent holds this task. You can only comment on it, or write a field while it has @mentioned you for input.");
+        }
+    }
+
+    /// <summary>The active dispatcher, if there is one: it gets the "any agent" tasks and passes each on.</summary>
+    private static Actor? DispatcherOf(Dictionary<int, Actor> actors) =>
+        actors.Values.Where(a => a.Kind == ActorKind.Agent && a.IsDispatcher && a.IsActive).OrderBy(a => a.Id).FirstOrDefault();
 
     private async Task<Dictionary<int, Actor>> ActorsAsync(CancellationToken ct = default) =>
         _actors ??= await db.Actors.AsNoTracking().ToDictionaryAsync(a => a.Id, ct);
@@ -1144,17 +1265,46 @@ public sealed class TaskService(
         {
             if (!HumanTriggers.Contains(ev.Type)) return;
             var targets = new HashSet<int>();
-            if (t.AssignedToPool) foreach (var a in actors.Values.Where(a => a.Kind == ActorKind.Agent && a.IsActive)) targets.Add(a.Id);
+            if (t.AssignedToPool)
+            {
+                // With a dispatcher, "any agent" means "let the dispatcher pick"; without one the agents race on claim_task.
+                if (DispatcherOf(actors) is { } d) targets.Add(d.Id);
+                else foreach (var a in actors.Values.Where(a => a.Kind == ActorKind.Agent && a.IsActive)) targets.Add(a.Id);
+            }
             else if (t.AssigneeId is { } aid && actors.GetValueOrDefault(aid) is { Kind: ActorKind.Agent, IsActive: true }) targets.Add(aid);
             else if (t.Status == BoardStatus.New) foreach (var a in actors.Values.Where(a => a.IsTriage && a.IsActive)) targets.Add(a.Id);
             foreach (var s in subtaskAssignees) if (actors.GetValueOrDefault(s) is { Kind: ActorKind.Agent, IsActive: true }) targets.Add(s);
             foreach (var target in targets) await UpsertOutboxAsync(OutboxKind.Todo, t, target, ev, null, ct);
         }
-        else if (ev.Type is EventType.Created or EventType.Assigned && t.AssigneeId is { } who && actors.GetValueOrDefault(who)?.Kind == ActorKind.Human)
+        else if (ev.Type is EventType.Created or EventType.Assigned)
         {
-            await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} assigned you: {t.Title}", ct);
+            // An agent handing work on (the dispatcher or triage agent assigning it) wakes whoever gets it.
+            if (t.AssigneeId is { } who && actors.GetValueOrDefault(who) is { } to)
+            {
+                if (to.Kind == ActorKind.Human) await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} assigned you: {t.Title}", ct);
+                else if (to.Id != me.Id && to.IsActive) await UpsertOutboxAsync(OutboxKind.Todo, t, to.Id, ev, null, ct);
+            }
+            else if (t.AssignedToPool && DispatcherOf(actors) is { } d && d.Id != me.Id)
+                await UpsertOutboxAsync(OutboxKind.Todo, t, d.Id, ev, null, ct);
         }
     }
+
+    /// <summary>
+    /// An @mentioned agent is woken whoever wrote the comment (the one exception to "an agent's own changes wake nobody";
+    /// the hop limit in AddComment keeps agents from waking each other forever). A mentioned user hears through the
+    /// mentioning agent's notify route; the user mentioning themself does nothing.
+    /// </summary>
+    private async Task PlanMentionWakeupsAsync(ActivityEvent ev, TaskItem t, ActorInfo me, List<Actor> mentioned, CancellationToken ct)
+    {
+        foreach (var a in mentioned)
+        {
+            if (a.Kind == ActorKind.Agent) await UpsertOutboxAsync(OutboxKind.Todo, t, a.Id, ev, MentionedReason, ct);
+            else if (me.IsAgent) await UpsertOutboxAsync(OutboxKind.Notify, t, me.Id, ev, $"{me.Name} mentioned you: {t.Title}", ct);
+        }
+    }
+
+    /// <summary>Todo webhooks carry it as "reason" when the agent was @mentioned (asked for input) rather than given the task.</summary>
+    public const string MentionedReason = "Mentioned";
 
     /// <summary>An agent gave the user a subtask: tell the user through the agent's notify route, as for a task.</summary>
     private async Task NotifySubtaskForUserAsync(ActivityEvent ev, TaskItem t, ActorInfo me, int? assigneeId, string subtaskTitle, CancellationToken ct)
@@ -1165,7 +1315,9 @@ public sealed class TaskService(
 
     private async Task UpsertOutboxAsync(OutboxKind kind, TaskItem t, int target, ActivityEvent ev, string? payload, CancellationToken ct)
     {
-        var existing = t.Id == 0 ? null : await db.Outbox.FirstOrDefaultAsync(o => o.Kind == kind && o.TaskId == t.Id && o.TargetActorId == target && o.SentAt == null, ct);
+        // A row this same change already queued (e.g. the assignee who is also @mentioned) is not in the database yet.
+        var existing = db.Outbox.Local.FirstOrDefault(o => o.Id == 0 && o.Kind == kind && o.TaskId == t.Id && o.TargetActorId == target)
+            ?? (t.Id == 0 ? null : await db.Outbox.FirstOrDefaultAsync(o => o.Kind == kind && o.TaskId == t.Id && o.TargetActorId == target && o.SentAt == null, ct));
         if (existing is not null)
         {
             existing.Event = ev;   // keep the original NotBefore: one webhook per window
@@ -1230,9 +1382,10 @@ public sealed class TaskService(
     private static InfoFieldDto ToDto(InfoField f, Dictionary<int, Actor> actors) =>
         new(f.Id, f.TaskId, f.Label, f.Value, f.AuthorId, Name(actors, f.AuthorId), f.CreatedAt, f.UpdatedAt);
 
-    private static CommentDto ToDto(Comment c, Dictionary<int, Actor> actors, long eventId = 0, ActorInfo? viewer = null, long viewerSeen = 0) =>
+    private static CommentDto ToDto(Comment c, Dictionary<int, Actor> actors, long eventId = 0, ActorInfo? viewer = null, long viewerSeen = 0, IEnumerable<MentionDto>? mentions = null) =>
         new(c.Id, c.TaskId, c.AuthorId, Name(actors, c.AuthorId), c.Body, c.CreatedAt, c.EditedAt, eventId,
-            Unread: viewer is not null && c.AuthorId != viewer.Id && eventId > viewerSeen);
+            Unread: viewer is not null && c.AuthorId != viewer.Id && eventId > viewerSeen,
+            Mentions: mentions?.ToList() is { Count: > 0 } list ? list : null);
 
     private static SubtaskDto ToDto(Subtask s, Dictionary<int, Actor> actors) =>
         new(s.Id, s.TaskId, s.Title, s.Done, s.AssigneeId is { } a ? Name(actors, a) : null, s.AssigneeId, s.SortOrder, Name(actors, s.CreatedById), s.DoneAt);

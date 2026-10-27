@@ -35,8 +35,11 @@ public sealed record SubtaskVm(int Id, string Title, bool Done, AssigneeVm Assig
 
 public sealed record InfoFieldVm(int Id, string Name, string Body, string Author, DateTimeOffset UpdatedAt, bool IsNew);
 
-/// <summary>EventId = the server event that created the comment (0 if unknown); IsNew = written by someone else after the caller's seen position.</summary>
-public sealed record CommentVm(int Id, string Author, string Body, DateTimeOffset At, bool IsNew, long EventId = 0)
+/// <summary>
+/// EventId = the server event that created the comment (0 if unknown); IsNew = written by someone else after the caller's seen position.
+/// Mentions = who the comment asked for input (@Name), and whether each had answered when it was loaded.
+/// </summary>
+public sealed record CommentVm(int Id, string Author, string Body, DateTimeOffset At, bool IsNew, long EventId = 0, IReadOnlyList<MentionDto>? Mentions = null)
 {
     public bool IsUser => Author == Fmt.HumanServerName;
 }
