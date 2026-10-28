@@ -234,7 +234,7 @@ docker compose up -d
 - **What it leaves to the web UI:** board and agent administration, agent connection details and the password change. Settings in the app has the theme and the server address.
 - **Notifications:** while the app runs in the background it notifies you about tasks that wait on you or mention you. These are local notifications driven by the live connection. There is no server push yet, so nothing arrives while the app is closed.
 
-Building needs the MAUI workloads (`dotnet workload restore src/DoiQ.App`), which is why the app is not in `DoiQ.slnx`. Build one platform at a time:
+Building needs the MAUI workloads (`dotnet workload restore --project src/DoiQ.App/DoiQ.App.csproj`, from an admin terminal). CI has none, so the app is listed in `DoiQ.slnx` but not built with it: `dotnet build DoiQ.slnx` skips it, and Visual Studio builds it when you pick it. Build it on its own, all platforms or one at a time:
 
 ```bash
 dotnet build src/DoiQ.App -p:AppPlatform=windows

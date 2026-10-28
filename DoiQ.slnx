@@ -2,6 +2,10 @@
   <Folder Name="/src/">
     <Project Path="src/DoiQ.Client/DoiQ.Client.csproj" />
     <Project Path="src/DoiQ.Client.UI/DoiQ.Client.UI.csproj" />
+    <!-- Not built with the solution: it needs the MAUI workloads, which CI doesn't have. Build it on its own (see README). -->
+    <Project Path="src/DoiQ.App/DoiQ.App.csproj">
+      <Build Project="false" />
+    </Project>
     <Project Path="src/DoiQ.App.Core/DoiQ.App.Core.csproj" />
     <Project Path="src/DoiQ.Core/DoiQ.Core.csproj" />
     <Project Path="src/DoiQ.Server/DoiQ.Server.csproj" />

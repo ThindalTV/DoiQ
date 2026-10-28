@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk.Razor">
 
     <!-- The DoiQ app for Windows, Android and iOS: the shared Blazor UI (DoiQ.Client.UI) in a BlazorWebView, against a
-         server the user picks, with what was read cached on the device (DoiQ.App.Core). Not in DoiQ.slnx: building it
-         needs the MAUI workloads. Build with: dotnet build src/DoiQ.App -f net10.0-windows10.0.19041.0 -->
+         server the user picks, with what was read cached on the device (DoiQ.App.Core). Listed in DoiQ.slnx but not
+         built with it, since building needs the MAUI workloads. Build with: dotnet build src/DoiQ.App -p:AppPlatform=windows -->
     <PropertyGroup>
         <TargetFrameworks>net10.0-android</TargetFrameworks>
         <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net10.0-ios</TargetFrameworks>
