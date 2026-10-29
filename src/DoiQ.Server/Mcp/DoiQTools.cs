@@ -63,6 +63,27 @@ public sealed class DoiQTools(TaskService tasks, BoardService boards, AgentAdmin
     public Task<ActorDto> SetMyResponsibilities(string responsibilities, CancellationToken ct) =>
         Run(() => agents.SetResponsibilities(current.Require().Id, responsibilities, ct));
 
+    [McpServerTool(Name = "register_agent"), Description("Orchestrator agents only (the user makes an agent one in Settings; anyone else gets an error). Register a new agent on the board. " +
+        "name must be unique; initials default to its first letter. webhookUrl is where DoiQ wakes the agent (a signed POST) when it has work; webhookSecret signs those calls: leave it out to have one generated. " +
+        "notifyUrl, if set, is where this agent passes notifications on to the user. responsibilities says what it does, in a few sentences: the dispatcher reads it to decide who gets a task. " +
+        "Returns the agent with its apiKey and, when generated, webhookSecret: they are shown only this once, so hand them to the new agent right away and do not post them in a task. " +
+        "The new agent gets no triage, dispatcher or orchestrator role: only the user hands those out.")]
+    public Task<CreatedAgentResult> RegisterAgent(string name, string? initials = null, string? webhookUrl = null, string? webhookSecret = null, string? notifyUrl = null,
+        string? responsibilities = null, CancellationToken ct = default) =>
+        Run(() => agents.Register(current.Require().Id, new RegisterAgentRequest(name, initials, webhookUrl, webhookSecret, notifyUrl, responsibilities), ct));
+
+    [McpServerTool(Name = "configure_agent"), Description("Orchestrator agents only. Change another agent's initials, webhookUrl, webhookSecret, notifyUrl or responsibilities, by name (see list_actors). " +
+        "Leave out what should stay as it is; pass an empty string to clear a URL or the responsibilities (a webhook secret can only be replaced). " +
+        "rotateKey=true issues a new API key, returned only this once; the old key stops working immediately. You cannot change yourself (use set_my_responsibilities) or another orchestrator.")]
+    public Task<ConfiguredAgentResult> ConfigureAgent(string agent, string? initials = null, string? webhookUrl = null, string? webhookSecret = null, string? notifyUrl = null,
+        string? responsibilities = null, bool rotateKey = false, CancellationToken ct = default) =>
+        Run(() => agents.Configure(current.Require().Id, agent, new ConfigureAgentRequest(initials, webhookUrl, webhookSecret, notifyUrl, responsibilities, rotateKey), ct));
+
+    [McpServerTool(Name = "delete_agent", Destructive = true), Description("Orchestrator agents only. Delete another agent by name: its API key stops working and it is no longer woken. " +
+        "Refused while open (not Done) tasks are assigned to it: assign_task them to someone else first. An agent that never took part in a task is removed entirely; " +
+        "one that did stays in those tasks' history as 'Name (deleted)' (keptForHistory=true). Either way its name is free for a new agent. You cannot delete yourself or another orchestrator.")]
+    public Task<DeletedAgentResult> DeleteAgent(string agent, CancellationToken ct) => Run(() => agents.Delete(current.Require().Id, agent, ct));
+
     [McpServerTool(Name = "get_changes", ReadOnly = true), Description("Events since a cursor (event id), across all boards unless you pass boardId or boardName; each event says which board it is on. Store the returned nextCursor and pass it next time. Your own changes are left out. If hasMore is true, call again with nextCursor.")]
     public Task<EventFeedDto> GetChanges([Description("Last event id you processed; 0 for the beginning")] long after = 0, int limit = 100,
         [Description("Only this board (id)")] int? boardId = null, [Description("Only this board (name); boardId wins")] string? boardName = null, CancellationToken ct = default) =>

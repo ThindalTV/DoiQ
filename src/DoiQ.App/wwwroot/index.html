@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>DoiQ</title>
+    <base href="/" />
+    <meta name="theme-color" content="#16043e" />
+    <!-- Apply the theme picked in Settings before anything paints, so a light choice doesn't flash dark. -->
+    <script>
+        try { const t = localStorage.getItem('doiq.theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch { }
+    </script>
+    <!-- Online only; offline the system fonts stand in. -->
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Antonio:wght@200;300;400&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" />
+    <link rel="stylesheet" href="_content/DoiQ.Client.UI/css/app.css" />
+    <link rel="stylesheet" href="app.css" />
+</head>
+
+<body>
+    <div id="app"><div class="boot" role="status">Loading…</div></div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="." class="reload">Reload</a>
+        <span class="dismiss">🗙</span>
+    </div>
+    <script src="_content/DoiQ.Client.UI/js/board.js"></script>
+    <script src="_framework/blazor.webview.js" autostart="false"></script>
+</body>
+
+</html>

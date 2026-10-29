@@ -165,18 +165,42 @@ public sealed record AgentAdminDto(
     DateTime CreatedAt,
     DateTime? LastSeenAt,
     bool IsDispatcher = false,
-    string? Responsibilities = null);
+    string? Responsibilities = null,
+    bool IsOrchestrator = false);
 
 /// <summary>
 /// Blank WebhookSecret = the server generates one and returns it once. At most one agent is triage and one is the
-/// dispatcher (setting the flag takes it from whoever had it); one agent may be both.
+/// dispatcher (setting the flag takes it from whoever had it); one agent may be both. Any number may be orchestrators.
 /// </summary>
 public sealed record CreateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
-    bool IsDispatcher = false, string? Responsibilities = null);
+    bool IsDispatcher = false, string? Responsibilities = null, bool IsOrchestrator = false);
 
 /// <summary>Full replace of name, initials, flags, responsibilities, webhookUrl and notifyUrl (null/blank clears it). WebhookSecret only changes when non-blank.</summary>
 public sealed record UpdateAgentRequest(string Name, bool IsTriage = false, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
-    bool IsDispatcher = false, string? Responsibilities = null);
+    bool IsDispatcher = false, string? Responsibilities = null, bool IsOrchestrator = false);
+
+/// <summary>
+/// POST /api/orchestrator/agents (orchestrator agents only): register an agent. It gets no triage, dispatcher or
+/// orchestrator role; only the user hands those out. Blank WebhookSecret = the server generates one and returns it once.
+/// </summary>
+public sealed record RegisterAgentRequest(string Name, string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
+    string? Responsibilities = null);
+
+/// <summary>
+/// PATCH /api/orchestrator/agents/{name} (orchestrator agents only). Null leaves a value as it is and "" clears it;
+/// WebhookSecret can only be replaced, not cleared. RotateKey issues a new API key (returned once; the old one stops working).
+/// </summary>
+public sealed record ConfigureAgentRequest(string? Initials = null, string? WebhookUrl = null, string? WebhookSecret = null, string? NotifyUrl = null,
+    string? Responsibilities = null, bool RotateKey = false);
+
+/// <summary>ApiKey is set only when the key was rotated, and is shown exactly once.</summary>
+public sealed record ConfiguredAgentResult(AgentAdminDto Agent, string? ApiKey);
+
+/// <summary>
+/// KeptForHistory: the agent had taken part in tasks, so it stays in their history under Name (now "Old name (deleted)")
+/// with no key, hooks or roles; otherwise it is gone entirely. Either way the old name is free again.
+/// </summary>
+public sealed record DeletedAgentResult(int Id, string Name, bool KeptForHistory);
 
 /// <summary>PUT /api/me/responsibilities (agents): the agent describes what it does, for the dispatcher. Blank clears it.</summary>
 public sealed record SetResponsibilitiesRequest(string? Responsibilities);

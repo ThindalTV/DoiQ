@@ -1,0 +1,41 @@
+@implements IDisposable
+@inject ServerSettings Server
+@inject AuthState Auth
+@inject DoiQ.App.Services.NeedsYouNotifier Notifier
+
+@* No server yet: ask for one. Otherwise the same UI as the browser client. *@
+@if (Server.BaseUrl is null)
+{
+    <ServerSetup />
+}
+else
+{
+    <DoiQ.Client.App />
+}
+
+@code {
+    private readonly CancellationTokenSource _cts = new();
+
+    protected override void OnInitialized()
+    {
+        Server.Changed += OnServerChanged;
+        Auth.Changed += OnAuthChanged;
+    }
+
+    // Everything the UI holds (board, sign-in state, hub) belongs to the old server: start over with a new page and scope.
+    private void OnServerChanged() =>
+        MainThread.BeginInvokeOnMainThread(() => { if (Application.Current?.Windows is [{ } window, ..]) window.Page = new MainPage(); });
+
+    private void OnAuthChanged()
+    {
+        if (Auth.Status == AuthStatus.SignedIn) _ = Notifier.Start(_cts.Token);
+    }
+
+    public void Dispose()
+    {
+        Server.Changed -= OnServerChanged;
+        Auth.Changed -= OnAuthChanged;
+        _cts.Cancel();
+        _cts.Dispose();
+    }
+}

@@ -1,0 +1,59 @@
+﻿@inherits LayoutComponentBase
+@implements IDisposable
+@inject AuthState Auth
+@inject NavigationManager Nav
+
+@if (Allowed)
+{
+    <OfflineBanner />
+    @Body
+}
+else
+{
+    <div class="boot" role="status">Loading…</div>
+}
+
+<NoticeHost />
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        Auth.Changed += OnAuthChanged;
+        Nav.LocationChanged += OnLocationChanged;
+        if (Auth.Status == AuthStatus.Unknown) await Auth.RefreshAsync();
+        Guard();
+    }
+
+    private string Path => Nav.ToBaseRelativePath(Nav.Uri).Split('?', '#')[0].Trim('/').ToLowerInvariant();
+
+    // Setup and login pages only for their own state; everything else needs a signed-in user.
+    private bool Allowed => (Auth.Status, Path) switch
+    {
+        (AuthStatus.SignedIn, "setup" or "login") => false,
+        (AuthStatus.SignedIn, _) => true,
+        (AuthStatus.NeedsSetup, "setup") => true,
+        (AuthStatus.SignedOut, "login") => true,
+        _ => false,
+    };
+
+    private void Guard()
+    {
+        var target = (Auth.Status, Path) switch
+        {
+            (AuthStatus.NeedsSetup, not "setup") => "setup",
+            (AuthStatus.SignedOut, not "login") => "login",
+            (AuthStatus.SignedIn, "setup" or "login") => "",
+            _ => null,
+        };
+        if (target is not null) Nav.NavigateTo(target, replace: true);
+    }
+
+    private void OnAuthChanged() { Guard(); InvokeAsync(StateHasChanged); }
+    private void OnLocationChanged(object? s, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs e) { Guard(); InvokeAsync(StateHasChanged); }
+
+    public void Dispose()
+    {
+        Auth.Changed -= OnAuthChanged;
+        Nav.LocationChanged -= OnLocationChanged;
+    }
+}

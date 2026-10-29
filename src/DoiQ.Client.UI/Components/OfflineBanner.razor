@@ -1,0 +1,27 @@
+@implements IDisposable
+@inject IServiceProvider Services
+
+@if (_status is { IsOffline: true } s)
+{
+    <div class="offline-banner" role="status">
+        Can't reach the server. Showing what was saved@(s.CachedAt is { } at ? $" at {at.ToLocalTime():g}" : "")
+        <span class="muted">· changes need a connection</span>
+    </div>
+}
+
+@code {
+    private IOfflineStatus? _status;
+
+    protected override void OnInitialized()
+    {
+        _status = Services.GetService(typeof(IOfflineStatus)) as IOfflineStatus;
+        if (_status is not null) _status.Changed += OnChanged;
+    }
+
+    private void OnChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        if (_status is not null) _status.Changed -= OnChanged;
+    }
+}

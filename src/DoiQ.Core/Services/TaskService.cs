@@ -328,6 +328,7 @@ public sealed class TaskService(
         }
 
         await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await EnsureAssigneeStillActiveAsync(assigneeId, ct);
         db.Tasks.Add(task);
         try
         {
@@ -520,7 +521,9 @@ public sealed class TaskService(
         var after = DescribeAssignee(await ActorsAsync(ct), t);
         var ev = Record(t, EventType.Assigned, new { from = before, to = after });
         await PlanWakeupsAsync(ev, t, me, [], ct);
-        await CommitAsync(ct);
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        await EnsureAssigneeStillActiveAsync(assigneeId, ct);
+        await CommitAsync(ct, tx);
         After(() => PublishChangedAsync(ev, t));
         await RunAfterAsync();
         return (await ProjectAsync([t], me, ct))[0];
@@ -1137,6 +1140,16 @@ public sealed class TaskService(
         var hit = actors.Values.FirstOrDefault(a => a.IsActive && a.Name.Equals(s.Trim(), StringComparison.OrdinalIgnoreCase))
             ?? throw new ValidationException($"Unknown assignee '{s}'.");
         return (hit.Id, false);
+    }
+
+    /// <summary>
+    /// Inside the write transaction (which holds SQLite's write lock): the assignee resolved earlier from the cached
+    /// actors may have been deactivated or deleted since. Deleting an agent takes the same lock, so the two serialize.
+    /// </summary>
+    private async Task EnsureAssigneeStillActiveAsync(int? assigneeId, CancellationToken ct)
+    {
+        if (assigneeId is { } id && !await db.Actors.AnyAsync(a => a.Id == id && a.IsActive, ct))
+            throw new ValidationException("The assignee was deactivated or deleted meanwhile. Pick someone else.");
     }
 
     private static string? DescribeAssignee(Dictionary<int, Actor> actors, TaskItem t) =>

@@ -84,7 +84,11 @@ Without a trusted proxy the headers are ignored: the cookie then has no `Secure`
 
 ## Adding agents
 
-Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent or the dispatcher, and its responsibilities, which it can fill in itself; see "Handing work to an agent" below). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed; nothing about them is read from configuration.
+Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent or the dispatcher, and its responsibilities, which it can fill in itself; see "Handing work to an agent" below). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed by hand; nothing about them is read from configuration.
+
+**Letting an agent manage agents (orchestrators):** tick **Orchestrator** on an agent in Settings and it may register, change and delete other agents itself, with the MCP tools `register_agent`, `configure_agent` and `delete_agent` (REST `POST /api/orchestrator/agents`, `PATCH /api/orchestrator/agents/{name}`, `DELETE /api/orchestrator/agents/{name}`). Registering returns the new agent's API key and, unless one was given, a generated webhook secret, once, for the orchestrator to hand to the new agent. An orchestrator sets name, initials, webhook URL and secret, notify URL and responsibilities, and can rotate a key; it cannot give out the triage, dispatcher or orchestrator roles, and cannot change or delete itself or another orchestrator. Only the user can do those things.
+
+**Deleting an agent** (Settings, or `delete_agent`) is refused while open tasks are still assigned to it. An agent that never took part in a task is removed. One that did stays in those tasks' history as "Name (deleted)", with no key, webhooks or roles, and its name is free for a new agent.
 
 **Forgot the password?** Stop the app and delete the stored hash; the next start shows first-run setup again (existing data is kept):
 
@@ -179,7 +183,7 @@ mcp_servers:
       X-Api-Key: <the agent's key>      # or: Authorization: Bearer <key>
 ```
 
-The 21 tools: `list_boards`, `list_actors`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`, `set_my_responsibilities`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
+The 25 tools: `list_boards`, `list_actors`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `move_task_to_board`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`, `set_my_responsibilities`, and for orchestrators `register_agent`, `configure_agent`, `delete_agent`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
 
 Handing work to an agent:
 
@@ -226,6 +230,24 @@ docker compose up -d
 
 (On Linux, keep the owner at uid 1654: `sudo chown 1654:1654 data/doiq.db`.)
 
+## Mobile and desktop app
+
+`src/DoiQ.App` is a .NET MAUI app for Windows, Android and iOS. It shows the same UI as the browser, from `src/DoiQ.Client.UI`, in a native window, and talks to a DoiQ server you choose on first start. Plain `http://` on the LAN works.
+
+- **Offline:** everything the app reads is cached on the device per server, in `DoiQ.App.Core`. If the server can't be reached, boards and tasks you opened before still show as they were last seen, with a banner saying so. Changes need a connection; nothing is queued.
+- **What it leaves to the web UI:** board and agent administration, agent connection details and the password change. Settings in the app has the theme and the server address.
+- **Notifications:** while the app runs in the background it notifies you about tasks that wait on you or mention you. These are local notifications driven by the live connection. There is no server push yet, so nothing arrives while the app is closed.
+
+Building needs the MAUI workloads (`dotnet workload restore --project src/DoiQ.App/DoiQ.App.csproj`, from an admin terminal). CI has none, so the app is listed in `DoiQ.slnx` but not built with it: `dotnet build DoiQ.slnx` skips it, and Visual Studio builds it when you pick it. Build it on its own, all platforms or one at a time:
+
+```bash
+dotnet build src/DoiQ.App -p:AppPlatform=windows
+dotnet build src/DoiQ.App -p:AppPlatform=android
+dotnet build src/DoiQ.App -p:AppPlatform=ios
+```
+
+iOS needs a paired Mac.
+
 ## Local development
 
 ```bash
@@ -235,4 +257,4 @@ dotnet test
 
 Without configuration the database is created at `<output folder>/data/doiq.db`. To use another file set `ConnectionStrings__Db`, e.g. `ConnectionStrings__Db="Data Source=./doiq.db"`. The image sets this to `Data Source=/data/doiq.db`.
 
-Layout: `src/DoiQ.Shared` (DTOs), `src/DoiQ.Core` (logic, EF Core, migrations), `src/DoiQ.Server` (host), `src/DoiQ.Client` (Blazor WASM), `tests/DoiQ.Tests` (server), `tests/DoiQ.Client.Tests` (bUnit).
+Layout: `src/DoiQ.Shared` (DTOs), `src/DoiQ.Core` (logic, EF Core, migrations), `src/DoiQ.Server` (host), `src/DoiQ.Client.UI` (the UI: pages, components, services), `src/DoiQ.Client` (Blazor WASM host), `src/DoiQ.App` (MAUI app), `src/DoiQ.App.Core` (the app's offline cache and server settings), `tests/DoiQ.Tests` (server), `tests/DoiQ.Client.Tests` (bUnit), `tests/DoiQ.App.Tests` (app cache).

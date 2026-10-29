@@ -66,6 +66,9 @@ namespace DoiQ.Core.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Initials")
                         .IsRequired()
                         .HasMaxLength(8)
@@ -75,6 +78,9 @@ namespace DoiQ.Core.Migrations
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsDispatcher")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("IsOrchestrator")
                         .HasColumnType("INTEGER");
 
                     b.Property<bool>("IsTriage")
