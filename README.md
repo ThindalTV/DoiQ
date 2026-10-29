@@ -84,7 +84,11 @@ Without a trusted proxy the headers are ignored: the cookie then has no `Secure`
 
 ## Adding agents
 
-Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent or the dispatcher, and its responsibilities, which it can fill in itself; see "Handing work to an agent" below). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed; nothing about them is read from configuration.
+Go to **Settings** in the UI and add an agent (name, initials, whether it is the triage agent or the dispatcher, and its responsibilities, which it can fill in itself; see "Handing work to an agent" below). The app creates an API key and shows it to you; copy it into the agent's configuration. Keys can be rotated from the same screen. Webhook URL and secret for each agent are also set there. Settings is the only place agents are managed by hand; nothing about them is read from configuration.
+
+**Letting an agent manage agents (orchestrators):** tick **Orchestrator** on an agent in Settings and it may register, change and delete other agents itself, with the MCP tools `register_agent`, `configure_agent` and `delete_agent` (REST `POST /api/orchestrator/agents`, `PATCH /api/orchestrator/agents/{name}`, `DELETE /api/orchestrator/agents/{name}`). Registering returns the new agent's API key and, unless one was given, a generated webhook secret, once, for the orchestrator to hand to the new agent. An orchestrator sets name, initials, webhook URL and secret, notify URL and responsibilities, and can rotate a key; it cannot give out the triage, dispatcher or orchestrator roles, and cannot change or delete itself or another orchestrator. Only the user can do those things.
+
+**Deleting an agent** (Settings, or `delete_agent`) is refused while open tasks are still assigned to it. An agent that never took part in a task is removed. One that did stays in those tasks' history as "Name (deleted)", with no key, webhooks or roles, and its name is free for a new agent.
 
 **Forgot the password?** Stop the app and delete the stored hash; the next start shows first-run setup again (existing data is kept):
 
@@ -179,7 +183,7 @@ mcp_servers:
       X-Api-Key: <the agent's key>      # or: Authorization: Bearer <key>
 ```
 
-The 21 tools: `list_boards`, `list_actors`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`, `set_my_responsibilities`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
+The 25 tools: `list_boards`, `list_actors`, `get_inbox`, `get_changes`, `search_tasks`, `get_task`, `create_task`, `update_task`, `move_task`, `move_task_to_board`, `assign_task`, `ask_user`, `upsert_field`, `add_comment`, `mark_seen`, `mark_handled`, `add_subtask`, `update_subtask`, `claim_task`, `renew_claim`, `release_task`, `set_my_responsibilities`, and for orchestrators `register_agent`, `configure_agent`, `delete_agent`. Their descriptions are the agent's instructions (for example `move_task` says which tasks the agent may move). Rule violations come back as tool errors with text the model can act on ("Another agent holds this task. You can only comment on it.", "Task is already claimed by another agent").
 
 Handing work to an agent:
 

@@ -42,13 +42,14 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
         await c.CallToolAsync(tool, Args(args));
 
     [Fact]
-    public async Task ListTools_Always_ExposesTheTwentyTwoToolsWithInstructions()
+    public async Task ListTools_Always_ExposesTheTwentyFiveToolsWithInstructions()
     {
         // Arrange
         string[] expected =
         [
             "list_boards", "get_inbox", "get_changes", "search_tasks", "get_task", "create_task", "update_task", "move_task", "move_task_to_board", "assign_task", "ask_user", "upsert_field",
             "add_comment", "mark_seen", "mark_handled", "add_subtask", "update_subtask", "claim_task", "renew_claim", "release_task", "list_actors", "set_my_responsibilities",
+            "register_agent", "configure_agent", "delete_agent",
         ];
 
         // Act

@@ -14,6 +14,9 @@
         <span class="k">Dispatcher</span>
         <label class="check-label"><input type="checkbox" @bind="_m.IsDispatcher" />This agent gets “Any agent” tasks and gives each to the agent best placed to do it</label>
 
+        <span class="k">Orchestrator</span>
+        <label class="check-label"><input type="checkbox" @bind="_m.IsOrchestrator" />This agent may register, change and delete other agents</label>
+
         <label for="@Id("resp")">Responsibilities</label>
         <div class="stack">
             <textarea id="@Id("resp")" class="field" rows="3" maxlength="2000" aria-describedby="@Id("resp-hint")"
@@ -62,7 +65,7 @@
         if (Existing is { } a)
             _m = new AgentFormModel
             {
-                Name = a.Name, Initials = a.Initials, IsTriage = a.IsTriage, IsDispatcher = a.IsDispatcher, Responsibilities = a.Responsibilities ?? "",
+                Name = a.Name, Initials = a.Initials, IsTriage = a.IsTriage, IsDispatcher = a.IsDispatcher, IsOrchestrator = a.IsOrchestrator, Responsibilities = a.Responsibilities ?? "",
                 WebhookUrl = a.WebhookUrl ?? "", NotifyUrl = a.NotifyUrl ?? "",
             };
     }
@@ -86,6 +89,7 @@
         public string Initials { get; set; } = "";
         public bool IsTriage { get; set; }
         public bool IsDispatcher { get; set; }
+        public bool IsOrchestrator { get; set; }
         public string Responsibilities { get; set; } = "";
         /// <summary>New agents only: give it a task asking it to describe its responsibilities (its answer replaces the box).</summary>
         public bool AskToDescribe { get; set; } = true;

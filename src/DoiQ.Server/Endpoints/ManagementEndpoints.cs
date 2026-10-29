@@ -29,12 +29,25 @@ public static class ManagementEndpoints
         admin.MapPost("/agents/{id:int}/rotate-key", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.RotateKeyAsync(id, ct)));
         admin.MapPost("/agents/{id:int}/deactivate", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.SetActiveAsync(id, false, ct)));
         admin.MapPost("/agents/{id:int}/activate", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.SetActiveAsync(id, true, ct)));
+        admin.MapDelete("/agents/{id:int}", async (int id, AgentAdminService s, CancellationToken ct) => Results.Ok(await s.Delete(id, ct)));
         // Gives the agent a task asking it to describe its responsibilities (it answers with PUT /api/me/responsibilities).
         admin.MapPost("/agents/{id:int}/ask-responsibilities", async (int id, TaskService s, CancellationToken ct) =>
         {
             var r = await s.AskForResponsibilities(id, ct);
             return Results.Created($"/api/tasks/{r.Task.Task.Id}", r);
         });
+
+        // Orchestrator agents managing other agents by name (the service checks the flag; everyone else gets 403).
+        var orchestrator = app.MapGroup("/api/orchestrator/agents");
+        orchestrator.MapPost("", async (RegisterAgentRequest req, ICurrentActor me, AgentAdminService s, CancellationToken ct) =>
+        {
+            var r = await s.Register(me.Require().Id, req, ct);
+            return Results.Created($"/api/orchestrator/agents/{Uri.EscapeDataString(r.Agent.Name)}", r);
+        });
+        orchestrator.MapPatch("/{name}", async (string name, ConfigureAgentRequest req, ICurrentActor me, AgentAdminService s, CancellationToken ct) =>
+            Results.Ok(await s.Configure(me.Require().Id, name, req, ct)));
+        orchestrator.MapDelete("/{name}", async (string name, ICurrentActor me, AgentAdminService s, CancellationToken ct) =>
+            Results.Ok(await s.Delete(me.Require().Id, name, ct)));
         return app;
     }
 }

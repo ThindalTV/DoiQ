@@ -638,6 +638,9 @@ public sealed class DoiQApiClient(HttpClient http) : IDoiQApiClient, IBoardSync
     public Task SetAgentActiveAsync(int id, bool active) =>
         Send<object>(HttpMethod.Post, $"api/agents/{id}/{(active ? "activate" : "deactivate")}");
 
+    public async Task<DeletedAgentResult> DeleteAgent(int id, CancellationToken ct) =>
+        await Send<DeletedAgentResult>(HttpMethod.Delete, $"api/agents/{id}", null, true, ct) ?? throw new ApiException("Empty response from the server.");
+
     public Task AskForResponsibilities(int agentId, CancellationToken ct) =>
         Send<object>(HttpMethod.Post, $"api/agents/{agentId}/ask-responsibilities", null, true, ct);
 

@@ -102,6 +102,8 @@ public interface IDoiQApiClient
     Task<AgentAdminDto> UpdateAgentAsync(int id, UpdateAgentRequest request);
     Task<RotatedKeyResult> RotateAgentKeyAsync(int id);
     Task SetAgentActiveAsync(int id, bool active);
+    /// <summary>Refused (400) while open tasks are assigned to the agent; one with history stays in it as "Name (deleted)".</summary>
+    Task<DeletedAgentResult> DeleteAgent(int id, CancellationToken ct);
 
     /// <summary>Gives the agent a task asking it to describe its responsibilities; it fills them in itself when it picks the task up.</summary>
     Task AskForResponsibilities(int agentId, CancellationToken ct);

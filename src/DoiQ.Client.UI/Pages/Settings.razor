@@ -117,6 +117,7 @@
                             <h4>@agent.Name</h4>
                             @if (agent.IsTriage) { <span class="badge-new">Triage</span> }
                             @if (agent.IsDispatcher) { <span class="badge-new">Dispatcher</span> }
+                            @if (agent.IsOrchestrator) { <span class="badge-new">Orchestrator</span> }
                             <span class="status @(agent.IsActive ? "on" : "off")">@(agent.IsActive ? "Active" : "Inactive")</span>
                         </header>
 
@@ -149,6 +150,7 @@
                                     <button type="button" class="btn btn-sm" @onclick="() => Ask(agent)">Ask it to describe itself</button>
                                 }
                                 <button type="button" class="btn btn-sm" @onclick="() => SetActive(agent, !agent.IsActive)">@(agent.IsActive ? "Deactivate" : "Activate")</button>
+                                <button type="button" id="agent-del-@agent.Id" class="btn btn-sm btn-danger" @onclick="() => _deletingAgent = agent">Delete</button>
                             </div>
                         }
                     </article>
@@ -207,6 +209,14 @@
     </ConfirmDialog>
 }
 
+@if (_deletingAgent is { } gone)
+{
+    <ConfirmDialog Title="Delete this agent?" ConfirmText="@($"Delete {gone.Name}")" Busy="_busy" OnConfirm="ConfirmDeleteAgent" OnCancel="CancelDeleteAgent">
+        <p>You are about to delete <strong>@gone.Name</strong>. Its API key stops working and it is no longer woken.</p>
+        <p>Tasks it took part in keep it in their history as “@gone.Name (deleted)”, and the name is free for a new agent. This cannot be undone.</p>
+    </ConfirmDialog>
+}
+
 @code {
     private sealed record Secrets(string Title, IReadOnlyList<(string Label, string Value)> Items);
 
@@ -226,6 +236,7 @@
     private string _newBoard = "", _renameName = "";
     private int? _renameId, _focusRename;
     private BoardDto? _deleting;
+    private AgentAdminDto? _deletingAgent;
 
     private ClientOptions Options => Services.GetService(typeof(ClientOptions)) as ClientOptions ?? ClientOptions.Default;
 
@@ -253,13 +264,14 @@
         }
     }
 
-    // Esc closes the delete dialog if one is open, otherwise leaves the settings screen (the shared key handler routes it here).
+    // Esc closes a delete dialog if one is open, otherwise leaves the settings screen (the shared key handler routes it here).
     [JSInvokable]
     public async Task OnKey(string key, bool shift, bool alt)
     {
         if (key != "Escape") return;
         if (_deleting is not null && !_busy) await InvokeAsync(CancelDelete);
-        else if (_deleting is null) Nav.NavigateTo("");
+        else if (_deletingAgent is not null && !_busy) await InvokeAsync(CancelDeleteAgent);
+        else if (_deleting is null && _deletingAgent is null) Nav.NavigateTo("");
     }
 
     private async Task SetTheme(string theme)
@@ -365,7 +377,7 @@
     private Task Create(AgentForm.AgentFormModel m) => Run(async () =>
     {
         var r = await Api.CreateAgentAsync(new CreateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl),
-            m.IsDispatcher, Blank(m.Responsibilities)));
+            m.IsDispatcher, Blank(m.Responsibilities), m.IsOrchestrator));
         if (m.AskToDescribe)
         {
             await Api.AskForResponsibilities(r.Agent.Id, _cts.Token);
@@ -381,7 +393,7 @@
     private Task Update(AgentAdminDto agent, AgentForm.AgentFormModel m) => Run(async () =>
     {
         await Api.UpdateAgentAsync(agent.Id, new UpdateAgentRequest(m.Name, m.IsTriage, Blank(m.Initials), Blank(m.WebhookUrl), Blank(m.WebhookSecret), Blank(m.NotifyUrl),
-            m.IsDispatcher, Blank(m.Responsibilities)));
+            m.IsDispatcher, Blank(m.Responsibilities), m.IsOrchestrator));
         if (!string.IsNullOrWhiteSpace(m.WebhookSecret))
             _secrets = new Secrets($"New webhook secret for {m.Name.Trim()}", [("Webhook secret", m.WebhookSecret.Trim())]);
         _editId = null;
@@ -410,6 +422,27 @@
         await Api.SetAgentActiveAsync(agent.Id, active);
         await Load();
     });
+
+    private async Task CancelDeleteAgent()
+    {
+        var id = _deletingAgent?.Id;
+        _deletingAgent = null;
+        StateHasChanged();
+        if (id is int i) await JS.InvokeVoidAsync("doiq.focus", _cts.Token, $"#agent-del-{i}");
+    }
+
+    // A refusal (open tasks still assigned) lands in _error next to the agent list, so the dialog closes either way.
+    private async Task ConfirmDeleteAgent()
+    {
+        if (_deletingAgent is not { } a) return;
+        await Run(async () =>
+        {
+            await Api.DeleteAgent(a.Id, _cts.Token);
+            Notices.Info($"{a.Name} was deleted.");
+            await Load();
+        });
+        _deletingAgent = null;
+    }
 
     private async Task ChangePassword()
     {

@@ -286,7 +286,7 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     {
         if (string.IsNullOrWhiteSpace(r.Name)) throw new ApiException("Name is required.");
         var a = new AgentAdminDto(_nextAgent++, r.Name.Trim(), string.IsNullOrWhiteSpace(r.Initials) ? AssigneeVm.Initials(r.Name) : r.Initials.Trim(),
-            r.IsTriage, true, Blank(r.WebhookUrl), Blank(r.NotifyUrl), !string.IsNullOrEmpty(r.WebhookSecret), DateTime.UtcNow, null, r.IsDispatcher, Blank(r.Responsibilities));
+            r.IsTriage, true, Blank(r.WebhookUrl), Blank(r.NotifyUrl), !string.IsNullOrEmpty(r.WebhookSecret), DateTime.UtcNow, null, r.IsDispatcher, Blank(r.Responsibilities), r.IsOrchestrator);
         if (r.IsDispatcher) ClearOtherDispatchers(a.Id);
         _agents.Add(a);
         return Task.FromResult(new CreatedAgentResult(a, RandomKey(), Blank(r.WebhookSecret)));
@@ -300,7 +300,7 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
         _agents[i] = o with
         {
             Name = r.Name.Trim(), Initials = string.IsNullOrWhiteSpace(r.Initials) ? AssigneeVm.Initials(r.Name) : r.Initials.Trim(),
-            IsTriage = r.IsTriage, IsDispatcher = r.IsDispatcher, Responsibilities = Blank(r.Responsibilities), WebhookUrl = Blank(r.WebhookUrl), NotifyUrl = Blank(r.NotifyUrl),
+            IsTriage = r.IsTriage, IsDispatcher = r.IsDispatcher, IsOrchestrator = r.IsOrchestrator, Responsibilities = Blank(r.Responsibilities), WebhookUrl = Blank(r.WebhookUrl), NotifyUrl = Blank(r.NotifyUrl),
             HasWebhookSecret = o.HasWebhookSecret || !string.IsNullOrWhiteSpace(r.WebhookSecret),
         };
         if (r.IsDispatcher) ClearOtherDispatchers(id);
@@ -330,6 +330,13 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
         var i = _agents.FindIndex(a => a.Id == id);
         if (i >= 0) _agents[i] = _agents[i] with { IsActive = active };
         return Task.CompletedTask;
+    }
+
+    public Task<DeletedAgentResult> DeleteAgent(int id, CancellationToken ct)
+    {
+        var a = _agents.Find(x => x.Id == id) ?? throw new ApiException("Agent not found.");
+        _agents.Remove(a);
+        return Task.FromResult(new DeletedAgentResult(id, a.Name, false));
     }
 
     private static string? Blank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();

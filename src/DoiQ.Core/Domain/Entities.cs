@@ -18,7 +18,11 @@ public class Actor
     public bool IsDispatcher { get; set; }
     /// <summary>What the agent does and does not do, in its own words or the user's; the dispatcher reads it.</summary>
     public string? Responsibilities { get; set; }
+    /// <summary>May register, reconfigure and delete other agents (not itself or other orchestrators). Only the user sets it.</summary>
+    public bool IsOrchestrator { get; set; }
     public bool IsActive { get; set; } = true;
+    /// <summary>Set when a deleted agent is kept for the history it left: renamed "Name (deleted)", inactive, no key, hooks or roles.</summary>
+    public DateTime? DeletedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     /// <summary>Last successful API-key authentication (written at most once a minute).</summary>
     public DateTime? LastSeenAt { get; set; }
