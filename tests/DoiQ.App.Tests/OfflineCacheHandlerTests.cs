@@ -201,6 +201,23 @@ public sealed class OfflineCacheHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task Send_GetStillInFlightWhenCacheIsCleared_DoesNotWriteItsAnswerBack()
+    {
+        _inner.Respond("private");
+        _inner.Gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var inFlight = _http.GetAsync("api/boards", Ct);
+
+        _handler.ClearCache();   // what a logout or a new login does while the GET is still downloading
+        _inner.Gate.SetResult();
+        await inFlight;
+        _inner.Gate = null;
+        _inner.Fail = true;
+
+        await Assert.ThrowsAsync<HttpRequestException>(() => _http.GetAsync("api/boards", Ct));
+        Assert.Empty(Directory.EnumerateFiles(Path.Combine(_dir, "cache"), "*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
     public async Task Send_RelativeUri_IsRewrittenToConfiguredServer()
     {
         _settings.Set("https://doiq.example.com/sub");
@@ -311,6 +328,8 @@ public sealed class OfflineCacheHandlerTests : IDisposable
 
         public bool Fail { get; set; }
         public bool Hang { get; set; }
+        /// <summary>When set, a request waits for it before answering.</summary>
+        public TaskCompletionSource? Gate { get; set; }
         public Uri? LastUri { get; private set; }
 
         public void Respond(string body, HttpStatusCode status = HttpStatusCode.OK)
@@ -323,6 +342,7 @@ public sealed class OfflineCacheHandlerTests : IDisposable
         {
             LastUri = request.RequestUri;
             if (Hang) await Task.Delay(Timeout.Infinite, ct);
+            if (Gate is { } gate) await gate.Task.WaitAsync(ct);
             if (Fail) throw new HttpRequestException("down");
             return new HttpResponseMessage(_status)
             {

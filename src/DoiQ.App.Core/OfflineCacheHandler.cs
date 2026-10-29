@@ -23,6 +23,8 @@ public sealed class OfflineCacheHandler : DelegatingHandler
     private readonly OfflineCacheOptions _options;
     private readonly object _gate = new();
     private int _storesSincePrune;
+    /// <summary>Bumped by every clear; a GET that started before one must not write its answer back afterwards.</summary>
+    private long _generation;
 
     public OfflineCacheHandler(ServerSettings settings, ConnectivityState connectivity, string cacheRoot,
         PersistentCookieJar? jar = null, OfflineCacheOptions? options = null)
@@ -49,6 +51,7 @@ public sealed class OfflineCacheHandler : DelegatingHandler
 
         var cacheable = request.Method == HttpMethod.Get && IsCacheable(relative);
         var key = server.AbsoluteUri + relative;
+        var generation = Interlocked.Read(ref _generation);
 
         HttpResponseMessage response;
         try
@@ -77,7 +80,7 @@ public sealed class OfflineCacheHandler : DelegatingHandler
                 await response.Content.LoadIntoBufferAsync(ct);
                 var body = await response.Content.ReadAsByteArrayAsync(ct);
                 await Store(server, key, new CacheEntry(key, (int)response.StatusCode,
-                    response.Content.Headers.ContentType?.ToString(), body, DateTimeOffset.UtcNow), ct);
+                    response.Content.Headers.ContentType?.ToString(), body, DateTimeOffset.UtcNow), generation, ct);
             }
             else if (request.Method == HttpMethod.Post && IsPath(relative, "api/auth/logout"))
             {
@@ -153,21 +156,36 @@ public sealed class OfflineCacheHandler : DelegatingHandler
         }
     }
 
-    private async Task Store(Uri server, string key, CacheEntry entry, CancellationToken ct)
+    /// <summary>
+    /// Writes beside the server directories, then moves the file in under the lock only if no clear happened since
+    /// the request started (<paramref name="generation"/>): a GET still downloading when the user signs out or a
+    /// different user signs in must not put the old session's data back on disk.
+    /// </summary>
+    private async Task Store(Uri server, string key, CacheEntry entry, long generation, CancellationToken ct)
     {
+        string? temp = null;
         try
         {
-            var directory = CacheDirectory(server);
-            Directory.CreateDirectory(directory);
-            var path = EntryPath(directory, key);
-            var temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            Directory.CreateDirectory(_cacheRoot);
+            temp = Path.Combine(_cacheRoot, Guid.NewGuid().ToString("N") + ".tmp");
             await File.WriteAllBytesAsync(temp, JsonSerializer.SerializeToUtf8Bytes(entry), ct);
-            File.Move(temp, path, overwrite: true);   // readers see the old or the new file, never half of one
+            var directory = CacheDirectory(server);
+            lock (_gate)
+            {
+                if (Interlocked.Read(ref _generation) != generation) return;
+                Directory.CreateDirectory(directory);
+                File.Move(temp, EntryPath(directory, key), overwrite: true);   // readers see the old or the new file, never half of one
+                temp = null;
+            }
             MaybePrune(directory);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException)
         {
             // Caching is best effort; a full disk must not fail the request.
+        }
+        finally
+        {
+            if (temp is not null) try { File.Delete(temp); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }
     }
 
@@ -189,6 +207,7 @@ public sealed class OfflineCacheHandler : DelegatingHandler
     {
         lock (_gate)
         {
+            Interlocked.Increment(ref _generation);
             try
             {
                 if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);

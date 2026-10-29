@@ -37,8 +37,8 @@ public sealed class BoardHubClient : IAsyncDisposable
     public HubState State { get; private set; }
     public event Action? StateChanged;
 
-    /// <summary>Every pushed task change, on any board, as it arrives (the app's notifications listen here).</summary>
-    public event Action<TaskChangedMessage>? TaskChanged;
+    /// <summary>A pushed task change or new comment, on any board, as it arrives: either can put something in the user's inbox (the app's notifications listen here).</summary>
+    public event Action? InboxMayHaveChanged;
 
     private void Set(HubState state)
     {
@@ -63,9 +63,9 @@ public sealed class BoardHubClient : IAsyncDisposable
             .WithAutomaticReconnect(new RetryPolicy(this))
             .Build();
 
-        connection.On<TaskChangedMessage>(BoardHubEvents.TaskChanged, m => { TaskChanged?.Invoke(m); return Apply(() => _sync.ApplyAsync(m)); });
+        connection.On<TaskChangedMessage>(BoardHubEvents.TaskChanged, m => { InboxMayHaveChanged?.Invoke(); return Apply(() => _sync.ApplyAsync(m)); });
         connection.On<TaskDeletedMessage>(BoardHubEvents.TaskDeleted, m => Apply(() => _sync.ApplyAsync(m)));
-        connection.On<CommentAddedMessage>(BoardHubEvents.CommentAdded, m => Apply(() => _sync.ApplyAsync(m)));
+        connection.On<CommentAddedMessage>(BoardHubEvents.CommentAdded, m => { InboxMayHaveChanged?.Invoke(); return Apply(() => _sync.ApplyAsync(m)); });
         connection.On<FieldChangedMessage>(BoardHubEvents.FieldChanged, m => Apply(() => _sync.ApplyAsync(m)));
         connection.On<SeenChangedMessage>(BoardHubEvents.SeenChanged, m => Apply(() => _sync.ApplyAsync(m)));
         connection.On<BoardChangedMessage>(BoardHubEvents.BoardChanged, m => Apply(() => _sync.ApplyAsync(m)));

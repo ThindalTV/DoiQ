@@ -243,6 +243,26 @@ public class OrchestratorTests
     }
 
     [Fact]
+    public async Task AssignAsync_ToAgentDeletedAfterTheAssigneeWasLookedUp_ThrowsValidationAndLeavesTheTask()
+    {
+        // Arrange
+        using var h = await WithOrchestrator();
+        var loki = await Admin(h).Register(h.Odin.Id, new RegisterAgentRequest("Loki"), h.Ct);
+        var taskId = await h.CreateAsync(h.User, "not for loki", BoardStatus.Waiting, "User");
+        await h.As(AsAgent(loki)).AddComment(taskId, new AddCommentRequest("here"), h.Ct);   // history, so Loki is kept, inactive
+        var user = h.AsUser();
+        await user.GetActorsAsync(h.Ct);   // the service now holds Loki as active, as a request already under way would
+        await Admin(h).Delete(h.Odin.Id, "Loki", h.Ct);
+
+        // Act
+        var ex = await Record.ExceptionAsync(() => user.AssignAsync(taskId, new AssignRequest(loki.Agent.Name), h.Ct));
+
+        // Assert
+        Assert.IsType<ValidationException>(ex);
+        Assert.Equal("User", (await h.AsUser().GetAsync(taskId, h.Ct)).Task.Assignee);
+    }
+
+    [Fact]
     public async Task Delete_Itself_ThrowsForbidden()
     {
         // Arrange

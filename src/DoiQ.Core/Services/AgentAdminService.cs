@@ -104,6 +104,9 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
 
     private async Task<DeletedAgentResult> DeleteCore(Actor a, CancellationToken ct)
     {
+        // SQLite's BEGIN IMMEDIATE takes the write lock now, so no assignment can commit between the check and the
+        // delete; TaskService re-checks its assignee inside its own write transaction for the opposite order.
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         var open = await db.Tasks.IgnoreQueryFilters().CountAsync(t => t.AssigneeId == a.Id && t.Status != BoardStatus.Done, ct);
         if (open > 0)
             throw new ValidationException($"{a.Name} still has {open} open task{(open == 1 ? "" : "s")} assigned. Assign {(open == 1 ? "it" : "them")} to someone else first.");
@@ -116,6 +119,7 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
             var name = a.Name;
             db.Actors.Remove(a);
             await db.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
             return new DeletedAgentResult(id, name, false);
         }
 
@@ -125,6 +129,7 @@ public sealed class AgentAdminService(DoiQDbContext db, TimeProvider time)
         a.ApiKeyHash = a.WebhookUrl = a.WebhookSecret = a.NotifyUrl = null;
         a.IsTriage = a.IsDispatcher = a.IsOrchestrator = false;
         await SaveAsync(ct);
+        await tx.CommitAsync(ct);
         return new DeletedAgentResult(id, a.Name, true);
     }
 
