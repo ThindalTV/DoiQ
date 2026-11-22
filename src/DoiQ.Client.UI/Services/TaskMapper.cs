@@ -47,7 +47,7 @@ public static class TaskMapper
 
     /// <summary>The summary-level part of a task; description, fields, comments and subtasks are left empty and the card shows the server's counts.</summary>
     public static TaskVm FromSummary(TaskSummaryDto s, ActorDto me) =>
-        new(s.Id, s.Title, "", Lane(s.Status), Assignee(s, me.Id), s.DueDate, s.Source == TaskSource.Email, s.Unread,
+        new(s.Id, s.Title, "", Lane(s.Status), Assignee(s, me.Id), s.DueDate, s.Source, s.Unread,
             s.Archived, "", At(s.CreatedAt), At(s.LastActivityAt), s.LastActivityBy, [], [], [],
             s.Version, s.SortOrder, DoneAt: s.DoneAt is { } done ? At(done) : null,
             Counts: new TaskCounts(s.CommentCount, s.FieldCount, s.SubtaskTotal, s.SubtaskDone));

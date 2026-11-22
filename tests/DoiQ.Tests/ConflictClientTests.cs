@@ -421,7 +421,7 @@ public class NoticeDescribeTests
     {
         // Arrange
         var state = new BoardState();
-        var task = new TaskVm(1, "t", "", BoardLane.New, AssigneeVm.Unassigned, null, false, false, false, "User", DateTimeOffset.Now, DateTimeOffset.Now, "User", [], [], []);
+        var task = new TaskVm(1, "t", "", BoardLane.New, AssigneeVm.Unassigned, null, DoiQ.Shared.Enums.TaskSource.Manual, false, false, "User", DateTimeOffset.Now, DateTimeOffset.Now, "User", [], [], []);
         state.Reset([task], 0);
         state.ApplySeen(1, "Hermes", 10);
 

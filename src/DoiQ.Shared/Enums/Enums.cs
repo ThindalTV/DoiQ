@@ -54,9 +54,19 @@ public enum BoardChangeKind
     Deleted = 2,
 }
 
+/// <summary>
+/// Where a task came from. An agent that makes a task from something it received sets the source and a sourceRef (the
+/// id the sending system gave it). A board keeps one task per source and sourceRef, so a retried intake finds the task
+/// it made the first time.
+/// </summary>
 [JsonConverter(typeof(StrictEnumConverter))]
 public enum TaskSource
 {
     Manual = 0,
+    /// <summary>An email; sourceRef is its Message-ID.</summary>
     Email = 1,
+    /// <summary>A text message (SMS or MMS); sourceRef is the message id the SMS provider gave it.</summary>
+    Sms = 2,
+    /// <summary>A phone call or voicemail; sourceRef is the call id the telephony provider gave it.</summary>
+    PhoneCall = 3,
 }

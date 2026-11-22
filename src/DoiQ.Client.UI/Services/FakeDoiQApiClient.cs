@@ -1,4 +1,5 @@
 using DoiQ.Client.Models;
+using DoiQ.Shared.Enums;
 
 namespace DoiQ.Client.Services;
 
@@ -127,7 +128,7 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     /// <summary>Puts an archived task (Done longer than the archive window) on the current board, for tests and the demo.</summary>
     public TaskVm AddArchived(int id, string title, DateTimeOffset doneAt, string description = "")
     {
-        var t = new TaskVm(id, title, description, BoardLane.Done, AssigneeVm.UserVm, null, false, false, true,
+        var t = new TaskVm(id, title, description, BoardLane.Done, AssigneeVm.UserVm, null, TaskSource.Manual, false, true,
             UserName, doneAt.AddDays(-1), doneAt, UserName, [], [], [], DoneAt: doneAt);
         _tasks.Add(t);
         return t;
@@ -139,7 +140,7 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
     public Task<TaskVm> CreateTaskAsync(string title)
     {
         var now = DateTimeOffset.Now;
-        var t = new TaskVm(_nextTask++, title.Trim(), "", BoardLane.New, AssigneeVm.Unassigned, null, false, false, false,
+        var t = new TaskVm(_nextTask++, title.Trim(), "", BoardLane.New, AssigneeVm.Unassigned, null, TaskSource.Manual, false, false,
             Fmt.HumanServerName, now, now, Fmt.HumanServerName, [], [], []);
         var firstNew = _tasks.FindIndex(x => x.Lane == BoardLane.New);
         _tasks.Insert(firstNew < 0 ? 0 : firstNew, t);
@@ -376,7 +377,7 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
         // Waiting
         _tasks.Add(new TaskVm(42, "Reply to the venue about the spring event",
             "Confirm the date and headcount for the spring event, and say whether we need **AV in both rooms**.",
-            BoardLane.Waiting, User, D(10, 27), true, true, false, "Hermes", At(9, 12), now.AddMinutes(-2), "Hermes",
+            BoardLane.Waiting, User, D(10, 27), TaskSource.Email, true, false, "Hermes", At(9, 12), now.AddMinutes(-2), "Hermes",
             [
                 new(1, "Summarise the venue's email", true, Hermes),
                 new(2, "Draft the reply", true, Hermes),
@@ -393,8 +394,8 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
                 new(2, UserName, "Yes please. Leave the headcount blank, I'll fill it in.", At(10, 3), false),
                 new(3, "Hermes", "Draft is in the Reply draft field. Move this to Doing when you send it, or give it back to me if you want changes.", now.AddMinutes(-2), true),
             ]));
-        Add(5, "Renew the kopplat.se domain", BoardLane.Waiting, User, due: D(11, 12), fields: Fields(1), unread: true, created: "Hermes");
-        Add(6, "Check the Telerik licence renewal date", BoardLane.Waiting, User, email: true, fields: Fields(1), created: "Hermes");
+        Add(5, "Renew the kopplat.se domain", BoardLane.Waiting, User, due: D(11, 12), source: TaskSource.Sms, fields: Fields(1), unread: true, created: "Hermes");
+        Add(6, "Check the Telerik licence renewal date", BoardLane.Waiting, User, source: TaskSource.Email, fields: Fields(1), created: "Hermes");
         Add(7, "Collect CFP deadlines for spring conferences", BoardLane.Waiting, AssigneeVm.AnyAgent, created: UserName);
         Add(8, "List NuGet packages that need .NET 10 updates", BoardLane.Waiting, new AssigneeVm(AssigneeKind.Pool, ClaimedBy: "Hermes 2"),
             subs: Subs(1, 3, Hermes2), created: UserName);
@@ -413,12 +414,12 @@ public sealed class FakeDoiQApiClient : IDoiQApiClient
             Add(id, title, BoardLane.Done, User, ago: TimeSpan.FromDays(80 + id), archived: true, created: UserName);
     }
 
-    private void Add(int id, string title, BoardLane lane, AssigneeVm who, DateOnly? due = null, bool email = false,
+    private void Add(int id, string title, BoardLane lane, AssigneeVm who, DateOnly? due = null, TaskSource source = TaskSource.Manual,
         bool unread = false, bool archived = false, string created = UserName, TimeSpan? ago = null,
         List<SubtaskVm>? subs = null, List<InfoFieldVm>? fields = null, List<CommentVm>? comments = null)
     {
         var at = DateTimeOffset.Now - (ago ?? TimeSpan.FromHours(id % 7 + 1));
-        _tasks.Add(new TaskVm(id, title, "", lane, who, due, email, unread, archived, created, at, at, created,
+        _tasks.Add(new TaskVm(id, title, "", lane, who, due, source, unread, archived, created, at, at, created,
             subs ?? [], fields ?? [], comments ?? [], DoneAt: lane == BoardLane.Done ? at : null));
     }
 

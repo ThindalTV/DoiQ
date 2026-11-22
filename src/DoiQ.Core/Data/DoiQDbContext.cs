@@ -67,7 +67,7 @@ public class DoiQDbContext : DbContext
             e.Property(x => x.Title).HasMaxLength(500);
             e.Property(x => x.Version).IsConcurrencyToken();
             e.HasOne<Board>().WithMany().HasForeignKey(x => x.BoardId).OnDelete(DeleteBehavior.Restrict);
-            e.HasIndex(x => new { x.BoardId, x.SourceRef }).IsUnique().HasFilter("SourceRef IS NOT NULL");
+            e.HasIndex(x => new { x.BoardId, x.Source, x.SourceRef }).IsUnique().HasFilter("SourceRef IS NOT NULL");
             e.HasIndex(x => new { x.BoardId, x.Status, x.SortOrder });
             // The archive: count, keyset paging newest-done first (DoneAt, then Id, which SQLite keeps in every index).
             e.HasIndex(x => new { x.BoardId, x.Status, x.DoneAt });

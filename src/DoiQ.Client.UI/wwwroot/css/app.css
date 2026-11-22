@@ -628,7 +628,7 @@ code { font-family: var(--font-mono); font-size: 13px; }
 .ic-calendar rect, .ic-calendar path { stroke: var(--warn); }
 .ic-subtasks rect, .ic-subtasks path { stroke: var(--ok); }
 .ic-comment path { stroke: var(--lane-doing); }
-.ic-mail rect, .ic-mail path { stroke: var(--lane-new); }
+.ic-mail rect, .ic-mail path, .ic-sms path, .ic-phone path { stroke: var(--lane-new); }
 .ic-fields path { stroke: var(--lilac); }
 
 /* connection */

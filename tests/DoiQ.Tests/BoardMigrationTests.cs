@@ -102,7 +102,7 @@ public sealed class BoardMigrationTests : IDisposable
         // Act
         await using var after = new DoiQDbContext(Options);
         var main = await after.Boards.SingleAsync();
-        after.Tasks.Add(new DoiQ.Core.Domain.TaskItem { BoardId = main.Id, Title = "Duplicate", Status = DoiQ.Shared.Enums.BoardStatus.New, CreatedById = 1, LastActivityById = 1, Version = 1, SourceRef = "msg-1" });
+        after.Tasks.Add(new DoiQ.Core.Domain.TaskItem { BoardId = main.Id, Title = "Duplicate", Status = DoiQ.Shared.Enums.BoardStatus.New, CreatedById = 1, LastActivityById = 1, Version = 1, Source = DoiQ.Shared.Enums.TaskSource.Email, SourceRef = "msg-1" });
         var ex = await Record.ExceptionAsync(() => after.SaveChangesAsync());
 
         // Assert

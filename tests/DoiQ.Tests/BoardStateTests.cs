@@ -6,7 +6,7 @@ namespace DoiQ.Tests;
 public sealed class BoardStateTests
 {
     private static TaskVm NewTask(int id, BoardLane lane = BoardLane.New, double order = 0, long version = 1) =>
-        new(id, $"Task {id}", "", lane, AssigneeVm.Unassigned, null, false, false, false, "User", DateTimeOffset.UnixEpoch,
+        new(id, $"Task {id}", "", lane, AssigneeVm.Unassigned, null, DoiQ.Shared.Enums.TaskSource.Manual, false, false, "User", DateTimeOffset.UnixEpoch,
             DateTimeOffset.UnixEpoch, "User", [], [], [], version, order);
 
     private static CommentVm Comment(int id) => new(id, "Hermes", "hi", DateTimeOffset.UnixEpoch.AddHours(1), IsNew: true);

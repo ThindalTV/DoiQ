@@ -281,16 +281,18 @@ public sealed class TaskService(
         if (await FindKeyAsync("task", req.RequestKey, ct) is { } prior)
             return new CreateTaskResult(await GetAsync(prior, ct), false);
 
-        // Stored trimmed, so looked up trimmed: " <id>" and "<id>" are the same email.
+        // A source's ids are only unique within that source (an SMS id may look like a call id), so a task is found
+        // again by source and sourceRef together. Stored trimmed, so looked up trimmed: " <id>" and "<id>" are the
+        // same email.
+        var source = EnumInput.Require(req.Source ?? TaskSource.Manual, "source");
         var sourceRef = string.IsNullOrWhiteSpace(req.SourceRef) ? null : req.SourceRef.Trim();
         if (sourceRef is not null)
         {
-            var existing = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
+            var existing = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.Source == source && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
             if (existing is { } eid) return new CreateTaskResult(await GetAsync(eid, ct), false);
         }
 
         var status = EnumInput.Require(req.Status ?? BoardStatus.New, "status");
-        var source = EnumInput.Require(req.Source ?? TaskSource.Manual, "source");
         var (assigneeId, pool) = await ResolveAssigneeAsync(req.Assignee, allowPool: true, ct);
         var actors = await ActorsAsync(ct);
         if (HandsToAgents(me, status, assigneeId, pool)) status = BoardStatus.Waiting;
@@ -336,9 +338,9 @@ public sealed class TaskService(
         }
         catch (DbUpdateException) when (task.SourceRef is not null)
         {
-            // lost a race on the unique SourceRef: return the winner
+            // lost a race on the unique source and SourceRef: return the winner
             db.ChangeTracker.Clear();
-            var winner = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
+            var winner = await db.Tasks.IgnoreQueryFilters().AsNoTracking().Where(t => t.BoardId == board.Id && t.Source == source && t.SourceRef == sourceRef).Select(t => (int?)t.Id).FirstOrDefaultAsync(ct);
             if (winner is { } wid) return new CreateTaskResult(await GetAsync(wid, ct), false);
             throw;
         }
@@ -480,8 +482,8 @@ public sealed class TaskService(
         var to = await ResolveBoardAsync(req.BoardId, req.BoardName, ct);
         if (to.Id == t.BoardId) return (await ProjectAsync([t], me, ct))[0];
         if (t.SourceRef is { } sourceRef &&
-            await db.Tasks.IgnoreQueryFilters().AnyAsync(x => x.BoardId == to.Id && x.SourceRef == sourceRef, ct))
-            throw new ConflictException($"Board '{to.Name}' already has a task made from the same source ({sourceRef}).");
+            await db.Tasks.IgnoreQueryFilters().AnyAsync(x => x.BoardId == to.Id && x.Source == t.Source && x.SourceRef == sourceRef, ct))
+            throw new ConflictException($"Board '{to.Name}' already has a task made from the same source ({t.Source} {sourceRef}).");
 
         var boards = await BoardsAsync(ct);
         var fromName = BoardNameOf(boards, t.BoardId);

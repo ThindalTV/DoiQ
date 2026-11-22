@@ -812,6 +812,40 @@ public class CreateTests
         Assert.Equal(first.Task.Task.Id, again.Task.Task.Id);
     }
 
+    [Theory]
+    [InlineData(TaskSource.Sms, "SM9f2c")]
+    [InlineData(TaskSource.PhoneCall, "CA41d7")]
+    public async Task CreateAsync_FromSmsOrPhoneCall_KeepsTheSourceAndFindsItAgain(TaskSource source, string sourceRef)
+    {
+        // Arrange
+        using var h = new Harness();
+        var first = await h.AsHermes().Create(new CreateTaskRequest("Call back the plumber", Source: source, SourceRef: sourceRef), h.Ct);
+
+        // Act
+        var again = await h.AsHermes().Create(new CreateTaskRequest("Call back the plumber", Source: source, SourceRef: sourceRef), h.Ct);
+
+        // Assert
+        Assert.True(first.Created);
+        Assert.False(again.Created);
+        Assert.Equal(first.Task.Task.Id, again.Task.Task.Id);
+        Assert.Equal((source, sourceRef), (again.Task.Task.Source, again.Task.Task.SourceRef));
+    }
+
+    [Fact]
+    public async Task CreateAsync_SameSourceRefFromAnotherSource_MakesASecondTask()
+    {
+        // Arrange
+        using var h = new Harness();
+        var sms = await h.AsHermes().Create(new CreateTaskRequest("Text", Source: TaskSource.Sms, SourceRef: "id-1"), h.Ct);
+
+        // Act
+        var call = await h.AsHermes().Create(new CreateTaskRequest("Call", Source: TaskSource.PhoneCall, SourceRef: "id-1"), h.Ct);
+
+        // Assert
+        Assert.True(call.Created);
+        Assert.NotEqual(sms.Task.Task.Id, call.Task.Task.Id);
+    }
+
     [Fact]
     public async Task CreateAsync_SameRequestKeyTwice_ReturnsTheSameTask()
     {

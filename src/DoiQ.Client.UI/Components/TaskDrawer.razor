@@ -28,7 +28,7 @@
                     <button type="button" class="btn btn-sm btn-quiet" @onclick="() => _titleStash = null">Discard</button>
                 </div>
             }
-            <span class="muted" style="font-size:12px">Created by @Fmt.Person(Task.CreatedBy)@(Task.FromEmail ? " from an email" : ""), @Fmt.When(Task.CreatedAt)</span>
+            <span class="muted" style="font-size:12px">Created by @Fmt.Person(Task.CreatedBy)@(Task.From?.CreatedPhrase), @Fmt.When(Task.CreatedAt)</span>
         </div>
 
         <div class="props">
@@ -84,10 +84,10 @@
                 }
             </div>
 
-            @if (Task.FromEmail)
+            @if (Task.From is { } from)
             {
                 <span class="k">Source</span>
-                <span class="src"><Icon Name="mail" Size="14" />Email, received @Fmt.When(Task.CreatedAt)</span>
+                <span class="src"><Icon Name="@from.Icon" Size="14" />@from.DrawerLabel @Fmt.When(Task.CreatedAt)</span>
             }
         </div>
 

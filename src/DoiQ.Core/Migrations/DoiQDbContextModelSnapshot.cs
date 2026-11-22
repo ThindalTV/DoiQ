@@ -503,7 +503,7 @@ namespace DoiQ.Core.Migrations
 
                     b.HasIndex("LastActivityById");
 
-                    b.HasIndex("BoardId", "SourceRef")
+                    b.HasIndex("BoardId", "Source", "SourceRef")
                         .IsUnique()
                         .HasFilter("SourceRef IS NOT NULL");
 
