@@ -202,6 +202,17 @@ What an agent may do to a task:
 - **Tasks another agent holds** (assigned to it, or live-claimed by it): comment only, plus fields while a comment there has @mentioned it and it has not answered yet.
 - **Never:** delete tasks, or add, rename or delete boards. Writes accept a `requestKey` so a retried call is safe, and `upsert_field` matches the label case-insensitively so re-running a step updates one field.
 
+Making tasks from what an agent receives: DoiQ does not read mail or phones itself. An agent connected to the inbox, the SMS provider or the phone system (for example through the provider's webhooks) makes the task with `create_task` (REST `POST /api/tasks`) and says where it came from:
+
+| `source` | Comes from | `sourceRef` |
+|---|---|---|
+| `Email` | an email | its `Message-ID` |
+| `Sms` | a text message (SMS or MMS) | the message id the SMS provider gave it |
+| `PhoneCall` | a phone call or voicemail | the call id the telephony provider gave it |
+| `Manual` (default) | made by hand | none |
+
+A board keeps one task per `source` and `sourceRef`, so delivering the same message twice returns the task made the first time (`created: false`); a `sourceRef` is only compared within its own source. The card and drawer show the source with its icon. What was said goes in info fields (for example `Message`, `Call summary`, `Transcript`), which the agent can update as a transcript or summary arrives. Phone numbers and message text are personal data: store only what the task needs.
+
 ### 5. What has and has not been verified
 
 Verified automatically (`tests/DoiQ.Tests`, `HermesFlowTests` and `McpToolTests`, real server on a throwaway database with a local receiver standing in for Hermes) and once by hand against a standalone receiver: the user assigns a task, the debounced webhook arrives with a valid V2 signature and the documented payload, the agent works over `/mcp` with its key (`get_inbox`, `get_task`, `upsert_field`, `add_comment`, `move_task`, `assign_task`), the change shows on the board, the `doiq-notify` webhook fires, retries after a 500 and recovery, and a server restart with a row still queued.

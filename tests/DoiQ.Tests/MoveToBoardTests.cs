@@ -181,6 +181,22 @@ public sealed class MoveToBoardTests : IDisposable
     }
 
     [Fact]
+    public async Task MoveToBoard_TargetHasSameSourceRefFromAnotherSource_Moves()
+    {
+        // Arrange
+        using var h = new Harness();
+        var work = await h.AddBoardAsync("Work");
+        await h.AsHermes().Create(new CreateTaskRequest("Mail", Source: TaskSource.Email, SourceRef: "id-1", BoardId: work), Ct);
+        var id = (await h.AsHermes().Create(new CreateTaskRequest("Text", Source: TaskSource.Sms, SourceRef: "id-1", BoardId: h.MainBoardId), Ct)).Task.Task.Id;
+
+        // Act
+        var moved = await h.AsUser().MoveToBoard(id, new MoveToBoardRequest(work), Ct);
+
+        // Assert
+        Assert.Equal(work, moved.BoardId);
+    }
+
+    [Fact]
     public async Task MoveToBoard_ByAgentOnItsOwnTask_Succeeds()
     {
         // Arrange

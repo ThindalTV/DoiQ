@@ -287,6 +287,20 @@ public sealed class McpToolTests : IClassFixture<McpToolTests.Fixture>
     }
 
     [Fact]
+    public async Task CreateTask_FromATextMessage_StoresTheSmsSource()
+    {
+        // Arrange
+        var sourceRef = "SM" + Guid.NewGuid().ToString("N");
+        var args = new (string, object?)[] { ("title", "Text from the school"), ("source", "sms"), ("sourceRef", sourceRef) };
+
+        // Act
+        var created = (await CallAsync(_f.Hermes, "create_task", args)).As<CreateTaskResult>();
+
+        // Assert
+        Assert.Equal((TaskSource.Sms, sourceRef), (created.Task.Task.Source, created.Task.Task.SourceRef));
+    }
+
+    [Fact]
     public async Task SearchTasks_MoreMatchesThanTheLimit_ReturnsAPageAndANextCursorThatContinues()
     {
         // Arrange

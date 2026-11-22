@@ -22,9 +22,9 @@
             <span class="who"><Avatar Assignee="Task.Assignee" />@Task.Assignee.Label</span>
         }
         <span class="icons">
-            @if (Task.FromEmail)
+            @if (Task.From is { } from)
             {
-                <span><Icon Name="mail" Size="14" /><span class="sr">From email</span></span>
+                <span title="@from.CardLabel"><Icon Name="@from.Icon" Size="14" /><span class="sr">@from.CardLabel</span></span>
             }
             <span class="created" title="Created"><Icon Name="clock" /><span class="sr">Created</span>@Fmt.Iso(Task.CreatedAt)</span>
             @if (Task.Due is DateOnly due)

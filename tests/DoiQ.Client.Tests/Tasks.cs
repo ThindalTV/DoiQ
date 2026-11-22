@@ -1,4 +1,5 @@
 using DoiQ.Client.Models;
+using DoiQ.Shared.Enums;
 
 namespace DoiQ.Client.Tests;
 
@@ -14,7 +15,7 @@ public static class Tasks
         BoardLane lane = BoardLane.New,
         AssigneeVm? assignee = null,
         DateOnly? due = null,
-        bool fromEmail = false,
+        TaskSource source = TaskSource.Manual,
         bool unread = false,
         bool archived = false,
         string updatedBy = Fmt.HumanServerName,
@@ -22,7 +23,7 @@ public static class Tasks
         IReadOnlyList<InfoFieldVm>? fields = null,
         IReadOnlyList<CommentVm>? comments = null,
         IReadOnlyList<SeenByVm>? seenBy = null) =>
-        new(id, title, description, lane, assignee ?? AssigneeVm.Unassigned, due, fromEmail, unread, archived,
+        new(id, title, description, lane, assignee ?? AssigneeVm.Unassigned, due, source, unread, archived,
             Fmt.HumanServerName, Now, Now, updatedBy, subtasks ?? [], fields ?? [], comments ?? [], SeenBy: seenBy);
 
     public static SubtaskVm Subtask(int id, bool done = false, string? title = null) =>

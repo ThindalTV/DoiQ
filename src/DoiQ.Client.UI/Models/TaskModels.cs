@@ -1,4 +1,5 @@
 using System.Globalization;
+using DoiQ.Shared.Enums;
 
 namespace DoiQ.Client.Models;
 
@@ -56,7 +57,7 @@ public sealed record TaskVm(
     BoardLane Lane,
     AssigneeVm Assignee,
     DateOnly? Due,
-    bool FromEmail,
+    TaskSource Source,
     bool Unread,
     bool Archived,
     string CreatedBy,
@@ -80,6 +81,8 @@ public sealed record TaskVm(
     public int FieldCount => Counts?.Fields ?? Fields.Count;
     public int SubtaskCount => Counts?.Subtasks ?? Subtasks.Count;
     public int SubtaskDoneCount => Counts?.SubtasksDone ?? SubtasksDone;
+    /// <summary>Where it came from, for the card and drawer; null when it was made by hand.</summary>
+    public SourceVm? From => SourceVm.For(Source);
 
     /// <summary>Names of the other actors that have seen the comment (the "Seen by" receipt under the user's own comments).</summary>
     public IReadOnlyList<string> SeenByFor(CommentVm c) =>
@@ -125,6 +128,18 @@ public sealed class BoardFilter
 }
 
 public sealed record DropTarget(BoardLane Lane, int? BeforeId);
+
+/// <summary>How the board shows where a task came from. Null for a task the user or an agent made by hand.</summary>
+public sealed record SourceVm(string Icon, string CardLabel, string CreatedPhrase, string DrawerLabel)
+{
+    public static SourceVm? For(TaskSource source) => source switch
+    {
+        TaskSource.Email => new("mail", "From email", " from an email", "Email, received"),
+        TaskSource.Sms => new("sms", "From a text message", " from a text message", "Text message, received"),
+        TaskSource.PhoneCall => new("phone", "From a phone call", " from a phone call", "Phone call, received"),
+        _ => null,
+    };
+}
 
 public static class Fmt
 {

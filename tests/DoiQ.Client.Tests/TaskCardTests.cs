@@ -1,6 +1,7 @@
 using Bunit;
 using DoiQ.Client.Components;
 using DoiQ.Client.Models;
+using DoiQ.Shared.Enums;
 using Microsoft.AspNetCore.Components.Web;
 
 namespace DoiQ.Client.Tests;
@@ -208,17 +209,34 @@ public sealed class TaskCardTests : ClientTestBase
         Assert.Empty(cut.FindAll(".unread-dot"));
     }
 
-    [Fact]
-    public void TaskCard_FromEmail_LabelsTheMailIconForScreenReaders()
+    [Theory]
+    [InlineData(TaskSource.Email, "ic-mail", "From email")]
+    [InlineData(TaskSource.Sms, "ic-sms", "From a text message")]
+    [InlineData(TaskSource.PhoneCall, "ic-phone", "From a phone call")]
+    public void TaskCard_FromASource_ShowsItsIconLabelledForScreenReaders(TaskSource source, string icon, string label)
     {
         // Arrange
-        var task = Tasks.Make(fromEmail: true);
+        var task = Tasks.Make(source: source);
 
         // Act
         var cut = Card(task);
 
         // Assert
-        Assert.Contains(cut.FindAll(".icons .sr"), s => s.TextContent == "From email");
+        Assert.NotNull(cut.Find($".icons .{icon}"));
+        Assert.Contains(cut.FindAll(".icons .sr"), s => s.TextContent == label);
+    }
+
+    [Fact]
+    public void TaskCard_MadeByHand_ShowsNoSourceIcon()
+    {
+        // Arrange
+        var task = Tasks.Make(source: TaskSource.Manual);
+
+        // Act
+        var cut = Card(task);
+
+        // Assert
+        Assert.Empty(cut.FindAll(".icons .ic-mail, .icons .ic-sms, .icons .ic-phone"));
     }
 
     [Fact]

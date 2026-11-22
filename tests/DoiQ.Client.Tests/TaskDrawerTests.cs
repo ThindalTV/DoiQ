@@ -1,6 +1,7 @@
 using Bunit;
 using DoiQ.Client.Components;
 using DoiQ.Client.Models;
+using DoiQ.Shared.Enums;
 using Microsoft.AspNetCore.Components.Web;
 
 namespace DoiQ.Client.Tests;
@@ -31,6 +32,23 @@ public sealed class TaskDrawerTests : ClientTestBase
         Assert.Contains("Doing", head);
         Assert.Contains("Updated by You", head);
         Assert.DoesNotContain("Updated by User", head);
+    }
+
+    [Theory]
+    [InlineData(TaskSource.Email, "Email, received", "from an email")]
+    [InlineData(TaskSource.Sms, "Text message, received", "from a text message")]
+    [InlineData(TaskSource.PhoneCall, "Phone call, received", "from a phone call")]
+    public void TaskDrawer_TaskFromASource_SaysWhereItCameFrom(TaskSource source, string sourceLine, string createdPhrase)
+    {
+        // Arrange
+        var task = Tasks.Make(source: source);
+
+        // Act
+        var cut = RenderDrawer(task);
+
+        // Assert
+        Assert.Contains(sourceLine, cut.Find(".props .src").TextContent);
+        Assert.Contains($"Created by You {createdPhrase},", cut.Markup);
     }
 
     [Fact]
